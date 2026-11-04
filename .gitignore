@@ -31,3 +31,9 @@ hs_err_pid*
 # 系统
 .DS_Store
 Thumbs.db
+
+# 项目设计文档（不入库，见 AGENTS.md 第 8 节）
+TASKS.md
+tripmap_MVP设计说明书.md
+*设计说明书*.md
+*设计文档*.md
