@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.tripmap</groupId>
+        <artifactId>tripmap</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <!-- 编排层：ChatClient 封装、StateGraph 定义、各节点实现、评测与回退 -->
+    <artifactId>tripmap-graph</artifactId>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.tripmap</groupId>
+            <artifactId>tripmap-tool</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>
