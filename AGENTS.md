@@ -28,6 +28,7 @@ tripmap 是一个以 **Agent 编排**为核心的旅游行程规划系统：用�
 | 编排 | Spring AI Alibaba Graph（StateGraph） |
 | LLM | DeepSeek（flash 档位）/ 硅基流动（统一 ChatClient 抽象，先跑通一家） |
 | 前端 | Vue 3（独立工程 `tripmap-front`，非 Maven 模块） |
+| 接口文档 | springdoc-openapi（Swagger UI） |
 | 外部服务 | 高德开放平台（POI + 路径规划）；天气候选和风、搜索候选博查（非阻塞，随任务再定） |
 
 ## 3. 文档索引
@@ -78,6 +79,7 @@ tripmap/
 
 - LLM 调用一律经统一 ChatClient 封装，结构化输出必须做 **ID 回库校验**，清单外 ID 直接拒绝
 - 统一返回体与全局异常处理（已在阶段 0 建立），新增接口不得各自造返回格式
+- 接口文档统一走 springdoc-openapi（Swagger UI：/swagger-ui/index.html）；新增 Controller 接口**必须**加 Swagger 注解描述：`@Tag`（类级分组）、`@Operation`（接口摘要）、`@Parameter`（参数说明）；请求/响应 DTO 字段加 `@Schema` 说明，禁止裸接口入库
 - 外部 API 客户端必须带超时、重试（指数退避）、限流；高德调用遵守 QPS
 - 每个工具/节点实现必须配单测；真实外部调用测试打 `@Tag("integration")` 标签，默认跳过
 - 注释与提交信息使用中文，关键算法（聚类锚定、双开放路径、回退路由）处写明设计说明书章节出处
