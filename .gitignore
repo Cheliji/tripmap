@@ -1,0 +1,33 @@
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# Node / Vue
+node_modules/
+dist/
+npm-debug.log*
+pnpm-lock.yaml.bak
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# 运行产物与日志
+logs/
+*.log
+hs_err_pid*
+
+# 环境变量与密钥（严禁入库）
+.env
+.env.*
+*.pem
+*.key
+
+# 系统
+.DS_Store
+Thumbs.db
