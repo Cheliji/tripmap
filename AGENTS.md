@@ -29,7 +29,7 @@ tripmap 是一个以 **Agent 编排**为核心的旅游行程规划系统：用�
 | LLM | DeepSeek（flash 档位）/ 硅基流动（统一 ChatClient 抽象，先跑通一家） |
 | 前端 | Vue 3（独立工程 `tripmap-front`，非 Maven 模块） |
 | 接口文档 | springdoc-openapi（Swagger UI） |
-| 外部服务 | 高德开放平台（POI + 路径规划）；天气候选和风、搜索候选博查（非阻塞，随任务再定） |
+| 外部服务 | 高德开放平台（POI 采集 + 路径规划）；天气候选和风（非阻塞，随任务再定）；联网搜索已定为 DeepSeek 官方联网搜索（`POST https://api.deepseek.com/v1/tools/search`，不使用博查） |
 
 ## 3. 文档索引
 
@@ -38,12 +38,13 @@ tripmap 是一个以 **Agent 编排**为核心的旅游行程规划系统：用�
 | 文档 | 说明 |
 | --- | --- |
 | [tripmap_MVP设计说明书.md](tripmap_MVP设计说明书.md) | 唯一设计准绳（v1.0 已通过），所有实现以它为准 |
+| [tripmap-poi功能设计说明书.md](tripmap-poi功能设计说明书.md) | tripmap-poi 离线 POI 数据加工模块（采集/增强/入库三脚本）的唯一实现依据 |
 | [TASKS.md](TASKS.md) | 任务拆解与执行顺序（阶段 0 → M1~M4 → M5 评测），开发按此推进并勾选 |
 | [AGENTS.md](AGENTS.md) | 本文件 |
 
 ## 4. 项目结构
 
-后端 Maven 多模块，**依赖方向只允许自上而下**，禁止反向依赖、禁止跨层跳跃；`tripmap-server` 是唯一可启动/装配模块。
+后端 Maven 多模块，**依赖方向只允许自上而下**，禁止反向依赖、禁止跨层跳跃；`tripmap-server` 是唯一 Spring Boot 装配/运行模块；`tripmap-poi` 是离线数据加工脚本模块（main 方法直跑、零 Spring，不参与运行时，见《tripmap-poi功能设计说明书》）。
 
 ```
 tripmap/
@@ -54,6 +55,8 @@ tripmap/
 │   └── src/main/java/.../dal/{entity,mapper}
 ├── tripmap-tool/              # 工具层：六个工具 + 外部 API 客户端（高德/天气/搜索/LLM 适配）
 │   └── src/main/java/.../tool/{poi,weather,commute,cluster,tsp,search}
+├── tripmap-poi/               # 离线 POI 数据加工（零 Spring 脚本：采集/增强/入库，不参与运行时）
+│   └── src/main/java/.../poi/{collect,enrich,importdb,excel,util}
 ├── tripmap-graph/             # 编排层：ChatClient 封装、StateGraph 定义、各节点实现、评测与回退
 │   └── src/main/java/.../graph/{node,edge,state,eval}
 ├── tripmap-server/            # 接入层：controller、SSE、全局配置、启动类
@@ -62,7 +65,7 @@ tripmap/
 └── sql/                       # 建表 DDL（方言中立，见 TASKS 1.2）
 ```
 
-包结构约定：各模块内部按 `controller / service / mapper / entity / dto / config / util` 划分，新代码必须归入既有包，不得新建平行顶层包。
+包结构约定：各模块内部按 `controller / service / mapper / entity / dto / config / util` 划分，新代码必须归入既有包，不得新建平行顶层包；`tripmap-poi` 例外，按 `{collect,enrich,importdb,excel,util}` 划分（脚本模块，无 controller/service 语义）。
 
 ## 5. 硬性禁止清单（AI 最容易自作主张的点）
 
@@ -82,6 +85,7 @@ tripmap/
 - 接口文档统一走 springdoc-openapi（Swagger UI：/swagger-ui/index.html）；新增 Controller 接口**必须**加 Swagger 注解描述：`@Tag`（类级分组）、`@Operation`（接口摘要）、`@Parameter`（参数说明）；请求/响应 DTO 字段加 `@Schema` 说明，禁止裸接口入库
 - 外部 API 客户端必须带超时、重试（指数退避）、限流；高德调用遵守 QPS
 - 每个工具/节点实现必须配单测；真实外部调用测试打 `@Tag("integration")` 标签，默认跳过
+- `tripmap-poi` 离线脚本不注册 Spring Bean、不走统一返回体；其中 LLM 仅允许对**联网搜索取证素材**做结构化整理，事实字段（开放时间等）必须带 source 且经人工校对后入库（《tripmap-poi功能设计说明书》§4）
 - 注释与提交信息使用中文，关键算法（聚类锚定、双开放路径、回退路由）处写明设计说明书章节出处
 
 ### 6.1 统一返回体 / 异常 / 请求日志（任务 0.7 建立，所有接口必须遵守）
