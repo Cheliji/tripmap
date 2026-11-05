@@ -78,11 +78,50 @@ tripmap/
 ## 6. 编码约束
 
 - LLM 调用一律经统一 ChatClient 封装，结构化输出必须做 **ID 回库校验**，清单外 ID 直接拒绝
-- 统一返回体与全局异常处理（已在阶段 0 建立），新增接口不得各自造返回格式
+- 统一返回体与全局异常处理（任务 0.7 已建立），新增接口不得各自造返回格式；格式、码段与用法见第 6.1 节
 - 接口文档统一走 springdoc-openapi（Swagger UI：/swagger-ui/index.html）；新增 Controller 接口**必须**加 Swagger 注解描述：`@Tag`（类级分组）、`@Operation`（接口摘要）、`@Parameter`（参数说明）；请求/响应 DTO 字段加 `@Schema` 说明，禁止裸接口入库
 - 外部 API 客户端必须带超时、重试（指数退避）、限流；高德调用遵守 QPS
 - 每个工具/节点实现必须配单测；真实外部调用测试打 `@Tag("integration")` 标签，默认跳过
 - 注释与提交信息使用中文，关键算法（聚类锚定、双开放路径、回退路由）处写明设计说明书章节出处
+
+### 6.1 统一返回体 / 异常 / 请求日志（任务 0.7 建立，所有接口必须遵守）
+
+**统一返回体**：所有 Controller 接口返回 `com.tripmap.common.result.Result<T>`，禁止裸业务对象/裸 Map 直接返回。
+
+```json
+{ "code": 0, "message": "ok", "data": { }, "traceId": "a1b2c3d4e5f6" }
+```
+
+- `code`：number，`0` 成功、非 `0` 失败；前端以 `resp.code === 0` 判断；**错误也返回 HTTP 200**，HTTP 状态码不承载错误语义
+- `message`：成功固定 `"ok"`；失败为可读中文，由后端控制，禁止透出框架原始英文异常/堆栈
+- `data`：失败时恒为 `null`；成功用 `Result.ok(data)`，无数据用 `Result.ok()`
+- `traceId`：由 `TraceIdFilter`/`ResultTraceIdAdvice` 自动填充，报障凭此查日志，代码中不要手动 set
+
+**错误码（`com.tripmap.common.result.ResultCode`，枚举保证唯一，新增码值必须落在既有码段内）**：
+
+| 码段 | 含义 | 已有码 |
+| --- | --- | --- |
+| `0` | 成功 | — |
+| `1xxxxx` | 客户端/参数错误 | 100001 校验失败 / 100002 参数缺失 / 100003 格式非法 / 100004 请求方式不支持 |
+| `2xxxxx` | 资源错误 | 200001 资源不存在（含 404 路径） |
+| `3xxxxx` | 业务规则（预期内拒绝） | 300001 城市不支持（意图拒绝 R1 复用）/ 300002 规划不可行 |
+| `4xxxxx` | 外部服务（可重试） | 400001 高德 / 400002 天气 / 400003 搜索 / 400004 LLM |
+| `5xxxxx` | 系统异常（兜底，对外脱敏） | 500001 未捕获异常 |
+
+**异常分层（阿里手册思路收敛为三层，非受检异常，不用异常控制流程）**：
+
+| 场景 | 抛什么 | 日志级别 | 全局处理行为 |
+| --- | --- | --- | --- |
+| 预期内业务失败 | `BizException(ResultCode)`（可覆写 message） | warn，无堆栈 | 按码原样返回 |
+| 外部 API 失败 | `ExternalApiException(ResultCode, supplier, retryable)` | retryable→warn；否则 error 带堆栈 | 按码返回，message 脱敏 |
+| 未捕获异常 | 不用抛，兜底 | error 全堆栈 | 固定 500001 + "系统繁忙，请稍后重试" |
+
+**关键类位置**：
+- `tripmap-common`：`common/result/Result`、`ResultCode`；`common/exception/BizException`、`ExternalApiException`（common 零 web 依赖，不引入 Spring）
+- `tripmap-server` `server/config/`：`GlobalExceptionHandler`、`TraceIdFilter`（入口生成/透传 `X-Trace-Id`，写 MDC 与响应头）、`ResultTraceIdAdvice`、`RequestLogAspect`（controller 包切面：info/warn/error 三级，输出 code+耗时）
+- 404 走统一返回体依赖 `application.yml` 的 `spring.mvc.throw-exception-if-no-handler-found=true` + `spring.web.resources.add-mappings=false`（已配置，勿删）
+
+**已知坑（勿重蹈）**：`ResponseBodyAdvice` 若用 `@RestControllerAdvice(basePackages=...)` 限定包，`@ExceptionHandler` 的返回会按"异常处理类自身"判定包归属而漏掉增强，导致错误响应 traceId 为 null——本仓库该 Advice 不限定包，靠 `body instanceof Result` 判断。
 
 ## 7. 工作流（每次会话）
 
