@@ -1,0 +1,52 @@
+{
+  "cities": [
+    {
+      "city": "杭州",
+      "cityAdcode": "330100",
+      "districts": [
+        {"adcode": "330106", "name": "西湖区", "clusters": ["西湖环线", "灵隐—龙井", "西溪", "之江"]},
+        {"adcode": "330102", "name": "上城区", "clusters": ["钱江新城", "湖滨", "吴山", "河坊街"]},
+        {"adcode": "330105", "name": "拱墅区", "clusters": ["大运河", "武林"]},
+        {"adcode": "330110", "name": "余杭区", "clusters": ["良渚", "西溪湿地北", "未来科技城"]},
+        {"adcode": "330108", "name": "滨江区", "clusters": ["钱塘江南岸"]},
+        {"adcode": "330109", "name": "萧山区", "clusters": ["湘湖"]},
+        {"adcode": "330111", "name": "富阳区", "clusters": ["富春江"]},
+        {"adcode": "330112", "name": "临安区", "clusters": ["青山湖"]},
+        {"adcode": "330113", "name": "临平区", "clusters": ["临平山"]},
+        {"adcode": "330114", "name": "钱塘区", "clusters": ["下沙"]},
+        {"adcode": "330127", "name": "淳安县", "clusters": ["千岛湖"]},
+        {"adcode": "330122", "name": "桐庐县", "clusters": ["富春江"]},
+        {"adcode": "330182", "name": "建德市", "clusters": ["新安江"]}
+      ],
+      "categories": [
+        {"typecode": "110000", "label": "旅游景点"},
+        {"typecode": "110100", "label": "公园广场"},
+        {"typecode": "110101", "label": "公园"},
+        {"typecode": "110102", "label": "动物园"},
+        {"typecode": "110103", "label": "植物园"},
+        {"typecode": "110104", "label": "水族馆"},
+        {"typecode": "110105", "label": "城市广场"},
+        {"typecode": "110106", "label": "公园内部设施", "strategy": "EXCLUDE"},
+        {"typecode": "110200", "label": "风景名胜"},
+        {"typecode": "110201", "label": "世界遗产"},
+        {"typecode": "110202", "label": "国家级景点"},
+        {"typecode": "110203", "label": "省级景点"},
+        {"typecode": "110204", "label": "纪念馆"},
+        {"typecode": "110205", "label": "寺庙道观"},
+        {"typecode": "110206", "label": "教堂"},
+        {"typecode": "110207", "label": "回教寺"},
+        {"typecode": "110208", "label": "海滩"},
+        {"typecode": "110209", "label": "观景点"},
+        {"typecode": "110210", "label": "红色景区"},
+        {"typecode": "080501", "label": "游乐场"},
+        {"typecode": "140100", "label": "博物馆"},
+        {"typecode": "140200", "label": "展览馆"},
+        {"typecode": "140300", "label": "科技馆"},
+        {"typecode": "140400", "label": "美术馆"},
+        {"typecode": "140500", "label": "图书馆"},
+        {"keywords": "购物中心", "label": "商圈-购物中心"},
+        {"keywords": "步行街", "label": "商圈-步行街"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "cities": [
+    {
+      "city": "测试城",
+      "cityAdcode": "330100",
+      "districts": [
+        {"adcode": "3301061", "name": "非法adcode区", "clusters": []}
+      ],
+      "categories": [
+        {"typecode": "110101", "label": "公园"}
+      ]
+    }
+  ]
+}
