@@ -7,15 +7,20 @@ server:
 spring:
   datasource:
     # 本地开发库，凭证直接写死（按约定不使用系统变量；库需先在任务 0.5 创建）
-    url: jdbc:mysql://localhost:3306/tripmap?useUnicode=true&characterEncoding=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai
+    # 注意：characterEncoding 须用 Java 编码名 UTF-8（Connector/J 会映射到 MySQL utf8mb4），
+    # 直接写 utf8mb4 会报 Unsupported character encoding
+    url: jdbc:mysql://localhost:3306/tripmap?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai
     username: root
     password: '123456'
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      # 本地 Redis，默认无密码（任务 0.6 连通性验证）
-      host: localhost
+      # 本地 Redis（无 Docker，直接监听 127.0.0.1，任务 0.6 连通性验证）
+      # 注意：不可写 localhost——本机 Redis 仅监听 IPv4，Java 解析 localhost 可能优先 IPv6 导致连接失败
+      host: 127.0.0.1
       port: 6379
+      # 本地 Redis 已开启认证（requirepass），凭证直接写死（与上方 MySQL 本地凭证同约定），可用环境变量覆盖
+      password: ${REDIS_PASSWORD:123456}
       database: 0
 
 # LLM 供应商配置：统一 ChatClient 封装按 provider 取值装配（设计说明书 295 行）

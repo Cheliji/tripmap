@@ -25,5 +25,11 @@
             <artifactId>tripmap-dal</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Redis 缓存（任务 0.6）：后续天气/通勤缓存统一走 Redis（AGENTS.md 禁用本地缓存）
+             依赖放在工具层，装配在 tripmap-server -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
     </dependencies>
 </project>
