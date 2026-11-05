@@ -7,7 +7,7 @@ import com.tripmap.common.result.ResultCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -15,6 +15,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -178,12 +179,18 @@ public class AmapClient {
 
     /**
      * 构建带超时控制的 RestClient（连接/读取超时来自配置）。
-     * 工厂方法独立出来，便于测试与后续替换实现。
+     *
+     * <p>用 {@link JdkClientHttpRequestFactory}（JDK HttpClient）而非 Simple 工厂：后者每次请求
+     * 新建 TCP 连接且 IPv6/连接建立抖动大（2026-11-05 杭州采集实测大量 Connect timed out），
+     * JDK HttpClient 自带连接池与 Happy Eyeballs，同机实测稳定。
+     * 连接超时是 JDK HttpClient 的客户端级属性，在构造 HttpClient 时设置。</p>
      */
     public static RestClient buildRestClient(AmapProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(properties.getConnectTimeoutMs());
-        factory.setReadTimeout(properties.getReadTimeoutMs());
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMs()));
         return RestClient.builder()
                 .requestFactory(factory)
                 .build();
