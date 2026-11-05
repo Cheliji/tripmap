@@ -24,6 +24,9 @@ spring:
 # LLM 供应商配置：统一 ChatClient 封装按 provider 取值装配（设计说明书 295 行）
 # 先跑通一家，供应商可平滑切换；密钥缺失时启动即失败，避免运行期才暴露
 tripmap:
+  amap:
+    # 高德 Web 服务 API Key：环境变量注入，禁止入库（AGENTS.md 第 5 节）；缺省留空，装配时启动失败
+    api-key: ${AMAP_API_KEY:}
   llm:
     provider: ${LLM_PROVIDER:deepseek}
     deepseek:

@@ -20,7 +20,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <p>本地中间件不可达时跳过而非失败，保证无 MySQL 的 CI 环境仍可跑单测；
  * 开发机已安装 MySQL 的情况下本用例必须真实通过。</p>
  */
-@SpringBootTest
+// 占位密钥仅为加载完整 ApplicationContext（高德客户端 fail-fast 校验），本测试不发起真实调用
+@SpringBootTest(properties = "tripmap.amap.api-key=test-placeholder-key")
 class MySqlConnectivitySmokeTest {
 
     private static final String DB_HOST = "127.0.0.1";

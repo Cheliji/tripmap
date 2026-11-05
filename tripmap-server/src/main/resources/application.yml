@@ -2,6 +2,19 @@
 # 激活方式：环境变量 TRIPMAP_PROFILE，缺省为 dev
 # 密钥一律环境变量注入，严禁硬编码（见 AGENTS.md 第 5 节）
 
+# 高德开放平台客户端配置（任务 1.1.2）
+# api-key 一律环境变量注入（AMAP_API_KEY），见 application-{env}.yml；此处只放与环境无关的调优项
+tripmap:
+  amap:
+    base-url: ${AMAP_BASE_URL:https://restapi.amap.com}
+    # QPS 限流（令牌桶）：当前配额 3 次/秒，可通过环境变量下调
+    qps: ${AMAP_QPS:3}
+    # 超时与重试（指数退避）：连接 3s、读取 8s，最多重试 2 次（退避 500ms/1s + 抖动）
+    connect-timeout-ms: ${AMAP_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${AMAP_READ_TIMEOUT_MS:8000}
+    max-retries: ${AMAP_MAX_RETRIES:2}
+    retry-base-delay-ms: ${AMAP_RETRY_BASE_DELAY_MS:500}
+
 spring:
   application:
     name: tripmap

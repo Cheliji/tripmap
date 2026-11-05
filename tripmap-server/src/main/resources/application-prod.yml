@@ -19,6 +19,9 @@ spring:
       database: ${REDIS_DATABASE:0}
 
 tripmap:
+  amap:
+    # 生产环境密钥一律环境变量，缺失即启动失败（不提供默认值）
+    api-key: ${AMAP_API_KEY}
   llm:
     provider: ${LLM_PROVIDER}
     deepseek:

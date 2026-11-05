@@ -25,11 +25,32 @@
             <artifactId>tripmap-dal</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 外部 API 客户端（任务 1.1.2）：RestClient 位于 spring-web，不引入完整 web 容器 -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <!-- 响应 JSON 解析（Jackson，版本由父 POM 统一管理） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
         <!-- Redis 缓存（任务 0.6）：后续天气/通勤缓存统一走 Redis（AGENTS.md 禁用本地缓存）
              依赖放在工具层，装配在 tripmap-server -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 高德客户端集成/单测的本地 HTTP 桩（任务 1.1.2） -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>
