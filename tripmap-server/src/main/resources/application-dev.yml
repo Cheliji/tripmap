@@ -15,12 +15,10 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      # 本地 Redis（无 Docker，直接监听 127.0.0.1，任务 0.6 连通性验证）
-      # 注意：不可写 localhost——本机 Redis 仅监听 IPv4，Java 解析 localhost 可能优先 IPv6 导致连接失败
       host: 127.0.0.1
       port: 6379
-      # 本地 Redis 已开启认证（requirepass），凭证直接写死（与上方 MySQL 本地凭证同约定），可用环境变量覆盖
-      password: ${REDIS_PASSWORD:123456}
+      # 本地 Redis 无密码；如后续开启认证，用环境变量注入：setx REDIS_PASSWORD xxx
+      password: ${REDIS_PASSWORD:}
       database: 0
 
 # LLM 供应商配置：统一 ChatClient 封装按 provider 取值装配（设计说明书 295 行）
