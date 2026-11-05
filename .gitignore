@@ -41,3 +41,7 @@ tripmap_MVPè®¾è®¡è¯´æ˜ä¹¦.md
 # ±¾µØ»·¾³ÅäÖÃ¸²¸Ç£¨¸öÈËÃÜÔ¿£¬ÑÏ½ûÈë¿â£©
 application-local.yml
 application-*.local.yml
+
+# ±¾µØÔËĞĞ²É¼¯½Å±¾ÁÙÊ±²úÎï
+cp.txt
+data/
