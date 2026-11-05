@@ -24,7 +24,7 @@ tripmap 是一个以 **Agent 编排**为核心的旅游行程规划系统：用�
 | 构建 | Maven 多模块 |
 | 数据库 | MySQL 8（DDL 必须方言中立，后续平滑迁移 PostgreSQL） |
 | 缓存 | Redis |
-| 求解器 | Google OR-Tools（Java） |
+| 求解器 | 纯 Java 精确枚举（路径排序：全排列 n!/2 去对称 + 时间窗剪枝，n≤8 毫秒级且数学最优） |
 | 编排 | Spring AI Alibaba Graph（StateGraph） |
 | LLM | DeepSeek（flash 档位）/ 硅基流动（统一 ChatClient 抽象，先跑通一家） |
 | 前端 | Vue 3（独立工程 `tripmap-front`，非 Maven 模块） |
