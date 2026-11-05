@@ -16,6 +16,7 @@
         <module>tripmap-common</module>
         <module>tripmap-dal</module>
         <module>tripmap-tool</module>
+        <module>tripmap-poi</module>
         <module>tripmap-graph</module>
         <module>tripmap-server</module>
     </modules>
@@ -29,6 +30,8 @@
         <spring-boot.version>3.3.5</spring-boot.version>
         <springdoc.version>2.6.0</springdoc.version>
         <swagger.version>2.2.22</swagger.version>
+        <!-- tripmap-poi Excel 读写（脚本专用依赖，见《tripmap-poi功能设计说明书》§6） -->
+        <easyexcel.version>3.3.4</easyexcel.version>
     </properties>
 
     <dependencyManagement>
@@ -49,6 +52,11 @@
                 <groupId>io.swagger.core.v3</groupId>
                 <artifactId>swagger-annotations-jakarta</artifactId>
                 <version>${swagger.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>easyexcel</artifactId>
+                <version>${easyexcel.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
