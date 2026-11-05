@@ -1,0 +1,31 @@
+# 生产环境配置（阶段 0 - 任务 0.4）
+# 与 dev 的差异：所有连接信息与密钥一律来自环境变量，不提供任何本地默认值
+# 严禁在此文件写入真实密钥（见 AGENTS.md 第 5、8 节）
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+
+tripmap:
+  llm:
+    provider: ${LLM_PROVIDER}
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      model: ${DEEPSEEK_MODEL:deepseek-chat}
+    siliconflow:
+      api-key: ${SILICONFLOW_API_KEY:}
+      base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
+      model: ${SILICONFLOW_MODEL:}
