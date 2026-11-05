@@ -13,4 +13,12 @@
     <!-- DTO、枚举、常量、统一返回体、异常、通用工具（零业务依赖） -->
     <artifactId>tripmap-common</artifactId>
     <packaging>jar</packaging>
+
+    <dependencies>
+        <!-- 仅为统一返回体等 DTO 的 @Schema 注解；不提供任何 web 能力，保持零业务依赖 -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+        </dependency>
+    </dependencies>
 </project>

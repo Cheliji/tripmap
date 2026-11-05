@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * HelloController 冒烟测试（阶段 0 - 0.2）
+ * HelloController 冒烟测试（阶段 0 - 0.2；任务 0.7 后校验统一返回体结构）
  */
 @WebMvcTest(HelloController.class)
 class HelloControllerTest {
@@ -19,9 +19,11 @@ class HelloControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    void hello应返回问候语() throws Exception {
+    void hello应返回统一返回体包裹的问候语() throws Exception {
         mockMvc.perform(get("/hello"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Hello World, tripmap!"));
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("ok"))
+                .andExpect(jsonPath("$.data.message").value("Hello World, tripmap!"));
     }
 }
