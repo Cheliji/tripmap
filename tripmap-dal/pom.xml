@@ -20,5 +20,16 @@
             <artifactId>tripmap-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 数据访问基础：JDBC + HikariCP 连接池（任务 0.5 接入 MySQL 8）
+             此处只引入 JDBC，ORM（MyBatis-Plus / JPA）待任务 1.2.4 择一再引入 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 </project>
