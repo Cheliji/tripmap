@@ -132,6 +132,34 @@ class AmapClientTest {
     }
 
     @Test
+    void 业务级QPS限流触发退避重试() throws Exception {
+        // 2026-11-05 杭州采集实测：高德以 status=0 + infocode=10021 返回 QPS 超限（非 HTTP 429），
+        // 重试落到下一秒窗口即恢复
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("{\"status\":\"0\",\"info\":\"CUQPS_HAS_EXCEEDED_THE_LIMIT\",\"infocode\":\"10021\"}"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("{\"status\":\"1\",\"count\":\"1\",\"pois\":[]}"));
+
+        var node = newClient().get("/v3/place/text", Map.of());
+        assertEquals("1", node.get("status").asText());
+        assertEquals(2, server.getRequestCount(), "10021 业务限流应退避重试");
+    }
+
+    @Test
+    void 日配额耗尽不重试() throws Exception {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("{\"status\":\"0\",\"info\":\"DAILY_QUERY_OVER_LIMIT\",\"infocode\":\"10003\"}"));
+
+        ExternalApiException e = assertThrows(ExternalApiException.class,
+                () -> newClient().get("/v3/place/text", Map.of()));
+        assertEquals(1, server.getRequestCount(), "10003 日配额耗尽重试无意义");
+        assertTrue(!e.isRetryable());
+    }
+
+    @Test
     void 客户端遵守QPS上限() throws Exception {
         properties.setQps(5);
         // 每个响应 fast enough，主要看限流侧节奏

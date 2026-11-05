@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -26,8 +27,10 @@ import java.util.concurrent.ThreadLocalRandom;
  * 失败重试（指数退避 + 抖动）。业务侧只关心路径与业务参数，
  * POI 搜索（1.1.3）、路径规划（2.4.1）等在此之上封装。</p>
  *
- * <p>重试策略（指数退避）：仅对<b>可重试</b>错误重试——网络超时/IO 异常、HTTP 429（限流）、
- * 5xx（服务端错误）；4xx 业务错误（如 key 无效）立即失败，不重试。
+ * <p>重试策略（指数退避）：对<b>可重试</b>错误重试——网络超时/IO 异常、HTTP 429（限流）、
+ * 5xx（服务端错误），以及<b>高德业务级限流</b>（status=0 且 infocode=10021 QPS 超限 /
+ * 10004 访问过于频繁，2026-11-05 杭州采集实测：触发后重试即可落到下一秒窗口）；
+ * 4xx 业务错误（如 key 无效）与配额类错误（10003 日配额耗尽）立即失败，不重试。
  * 第 n 次重试等待 base * 2^(n-1) + [0, base) 毫秒抖动，避免多实例同步重试。</p>
  *
  * <p>失败语义：统一抛 {@link ExternalApiException}（码段 4xxxxx / 高德 400001），
@@ -87,7 +90,11 @@ public class AmapClient {
                         .uri(uri)
                         .retrieve()
                         .body(String.class);
-                return checkBusinessStatus(path, body);
+                JsonNode root = checkBusinessStatus(path, body, attempt, maxAttempts);
+                if (root == null) {
+                    continue; // 业务限流已退避，进入下一轮重试
+                }
+                return root;
             } catch (RestClientResponseException e) {
                 if (isRetryableHttpStatus(e.getStatusCode())) {
                     if (attempt < maxAttempts) {
@@ -112,26 +119,37 @@ public class AmapClient {
         }
     }
 
+    /** 高德业务级限流 infocode：触发后按指数退避重试（下一秒窗口即恢复，2026-11-05 实测） */
+    private static final Set<String> RETRYABLE_BUSINESS_CODES = Set.of("10021", "10004");
+
     /**
-     * 校验高德业务状态字段：status=0 视为业务失败（infocode 见日志）。
-     * 业务失败（如 CITY_NOT_SUPPORT）不可重试，直接抛出。
+     * 校验高德业务状态字段：status=0 视为业务失败。
+     * 限流类 infocode（10021/10004）按指数退避重试；其余业务失败（key 无效、日配额耗尽等）不可重试，直接抛出。
      */
-    private JsonNode checkBusinessStatus(String path, String body) {
+    private JsonNode checkBusinessStatus(String path, String body, int attempt, int maxAttempts) {
+        final JsonNode root;
         try {
-            JsonNode root = objectMapper.readTree(body);
-            JsonNode status = root.get("status");
-            if (status != null && "0".equals(status.asText())) {
-                String infocode = root.path("info").asText("") + "/" + root.path("infocode").asText("");
-                log.error("高德业务调用失败: path={}, info={}", path, infocode);
-                throw new ExternalApiException(ResultCode.EXTERNAL_AMAP.getCode(),
-                        "高德服务返回业务错误(" + infocode + ")", SUPPLIER, false);
-            }
-            return root;
+            root = objectMapper.readTree(body);
         } catch (IOException e) {
             // 响应非法 JSON：不可重试
             log.error("高德响应解析失败: path={}, body={}", path, body, e);
             throw new ExternalApiException(ResultCode.EXTERNAL_AMAP, SUPPLIER, false);
         }
+        JsonNode status = root.get("status");
+        if (status != null && "0".equals(status.asText())) {
+            String infocode = root.path("infocode").asText();
+            if (RETRYABLE_BUSINESS_CODES.contains(infocode) && attempt < maxAttempts) {
+                log.warn("高德业务限流（{}），第 {}/{} 次重试", infocode, attempt, maxAttempts);
+                backoff(attempt);
+                return null; // 由调用方 continue 进入下一轮重试
+            }
+            String info = root.path("info").asText("") + "/" + infocode;
+            log.error("高德业务调用失败: path={}, info={}", path, info);
+            throw new ExternalApiException(ResultCode.EXTERNAL_AMAP.getCode(),
+                    "高德服务返回业务错误(" + info + ")", SUPPLIER,
+                    RETRYABLE_BUSINESS_CODES.contains(infocode));
+        }
+        return root;
     }
 
     private boolean isRetryableHttpStatus(HttpStatusCode status) {
