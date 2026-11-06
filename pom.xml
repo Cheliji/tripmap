@@ -63,6 +63,16 @@
         </dependencies>
     </dependencyManagement>
 
+    <dependencies>
+        <!-- Lombok：全模块 provided 引入（版本由 Spring Boot BOM 统一管理），
+             普通 POJO/DTO 一律用 @Data/@Builder 消除样板代码，规则见 AGENTS.md 第 6 节 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
     <build>
         <pluginManagement>
             <plugins>

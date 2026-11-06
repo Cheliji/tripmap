@@ -1,5 +1,7 @@
 package com.tripmap.tool.amap;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -7,7 +9,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>api-key 一律环境变量注入（AGENTS.md 第 5 节），见 application-{env}.yml；
  * 其余调优项见 application.yml。密钥缺失时启动即失败，避免运行期才暴露。</p>
+ *
+ * <p>Lombok 消除样板代码（AGENTS.md 第 6 节）；本类含密钥字段，
+ * 故用 {@code @Getter}/{@code @Setter} 而不用 {@code @Data}——避免默认 toString 打印 apiKey。</p>
  */
+@Getter
+@Setter
 @ConfigurationProperties(prefix = "tripmap.amap")
 public class AmapProperties {
 
@@ -31,60 +38,4 @@ public class AmapProperties {
 
     /** 重试退避基准间隔（毫秒）：第 n 次重试等待 base * 2^(n-1) + 抖动 */
     private long retryBaseDelayMs = 500;
-
-    public String getApiKey() {
-        return apiKey;
-    }
-
-    public void setApiKey(String apiKey) {
-        this.apiKey = apiKey;
-    }
-
-    public String getBaseUrl() {
-        return baseUrl;
-    }
-
-    public void setBaseUrl(String baseUrl) {
-        this.baseUrl = baseUrl;
-    }
-
-    public double getQps() {
-        return qps;
-    }
-
-    public void setQps(double qps) {
-        this.qps = qps;
-    }
-
-    public int getConnectTimeoutMs() {
-        return connectTimeoutMs;
-    }
-
-    public void setConnectTimeoutMs(int connectTimeoutMs) {
-        this.connectTimeoutMs = connectTimeoutMs;
-    }
-
-    public int getReadTimeoutMs() {
-        return readTimeoutMs;
-    }
-
-    public void setReadTimeoutMs(int readTimeoutMs) {
-        this.readTimeoutMs = readTimeoutMs;
-    }
-
-    public int getMaxRetries() {
-        return maxRetries;
-    }
-
-    public void setMaxRetries(int maxRetries) {
-        this.maxRetries = maxRetries;
-    }
-
-    public long getRetryBaseDelayMs() {
-        return retryBaseDelayMs;
-    }
-
-    public void setRetryBaseDelayMs(long retryBaseDelayMs) {
-        this.retryBaseDelayMs = retryBaseDelayMs;
-    }
 }

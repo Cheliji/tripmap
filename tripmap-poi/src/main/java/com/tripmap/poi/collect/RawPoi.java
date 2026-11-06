@@ -1,5 +1,10 @@
 package com.tripmap.poi.collect;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 /**
  * 高德 POI 原始记录（任务 1.1.3）
  *
@@ -9,8 +14,14 @@ package com.tripmap.poi.collect;
  * {@code parent}/{@code distance}/{@code importance} 等恒为空字段不采集。
  * {@code collect_keywords}/{@code collected_at} 两列由采集脚本（1.3.2）在快照组装时补充，本类不含。</p>
  *
- * <p>采用 JavaBean 形态（非 record）：下游 Excel 读写（EasyExcel）与去重合并需要可变对象。</p>
+ * <p>采用 JavaBean 形态（非 record）：下游 Excel 读写（EasyExcel）与去重合并需要可变对象。
+ * Lombok 注解消除样板代码（规则见 AGENTS.md 第 6 节）：{@code @Builder} 供组装用，
+ * {@code @NoArgsConstructor} 保留框架/测试反射实例化入口。</p>
  */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class RawPoi {
 
     /** amap_id：高德 id，快照内天然主键（§3.3 去重依据） */
@@ -47,146 +58,4 @@ public class RawPoi {
     private String adname;
     /** 图片 URL（photos[].url 分号拼接，可空） */
     private String photos;
-
-    public String getAmapId() {
-        return amapId;
-    }
-
-    public void setAmapId(String amapId) {
-        this.amapId = amapId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getType() {
-        return type;
-    }
-
-    public void setType(String type) {
-        this.type = type;
-    }
-
-    public String getTypecode() {
-        return typecode;
-    }
-
-    public void setTypecode(String typecode) {
-        this.typecode = typecode;
-    }
-
-    public String getKeytag() {
-        return keytag;
-    }
-
-    public void setKeytag(String keytag) {
-        this.keytag = keytag;
-    }
-
-    public String getLevel() {
-        return level;
-    }
-
-    public void setLevel(String level) {
-        this.level = level;
-    }
-
-    public String getRating() {
-        return rating;
-    }
-
-    public void setRating(String rating) {
-        this.rating = rating;
-    }
-
-    public String getOpenTime() {
-        return openTime;
-    }
-
-    public void setOpenTime(String openTime) {
-        this.openTime = openTime;
-    }
-
-    public String getOpentime2() {
-        return opentime2;
-    }
-
-    public void setOpentime2(String opentime2) {
-        this.opentime2 = opentime2;
-    }
-
-    public String getCost() {
-        return cost;
-    }
-
-    public void setCost(String cost) {
-        this.cost = cost;
-    }
-
-    public String getTel() {
-        return tel;
-    }
-
-    public void setTel(String tel) {
-        this.tel = tel;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public void setAddress(String address) {
-        this.address = address;
-    }
-
-    public String getLocation() {
-        return location;
-    }
-
-    public void setLocation(String location) {
-        this.location = location;
-    }
-
-    public String getPname() {
-        return pname;
-    }
-
-    public void setPname(String pname) {
-        this.pname = pname;
-    }
-
-    public String getCityname() {
-        return cityname;
-    }
-
-    public void setCityname(String cityname) {
-        this.cityname = cityname;
-    }
-
-    public String getAdname() {
-        return adname;
-    }
-
-    public void setAdname(String adname) {
-        this.adname = adname;
-    }
-
-    public String getPhotos() {
-        return photos;
-    }
-
-    public void setPhotos(String photos) {
-        this.photos = photos;
-    }
-
-    @Override
-    public String toString() {
-        return "RawPoi{" + "amapId='" + amapId + '\'' + ", name='" + name + '\''
-                + ", typecode='" + typecode + '\'' + ", adname='" + adname + '\'' + '}';
-    }
 }

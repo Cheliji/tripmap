@@ -87,6 +87,7 @@ tripmap/
 - 每个工具/节点实现必须配单测；真实外部调用测试打 `@Tag("integration")` 标签，默认跳过
 - `tripmap-poi` 离线脚本不注册 Spring Bean、不走统一返回体；其中 LLM 仅允许对**联网搜索取证素材**做结构化整理，事实字段（开放时间等）必须带 source 且经人工校对后入库（《tripmap-poi功能设计说明书》§4）
 - 注释与提交信息使用中文，关键算法（聚类锚定、双开放路径、回退路由）处写明设计说明书章节出处
+- **普通 POJO/DTO/数据载体类一律使用 Lombok 消除样板代码，禁止手写 getter/setter/toString/equals/hashCode**：典型组合 `@Data + @Builder + @NoArgsConstructor + @AllArgsConstructor`（EasyExcel/MyBatis/Spring 反射实例化依赖无参构造，凡加 `@Builder` 必须同时补 `@NoArgsConstructor`/`@AllArgsConstructor`）；含敏感字段（如 apiKey）的类改用 `@Getter`/`@Setter`，避免 `@Data` 默认 toString 泄露密钥；不可变数据载体优先 Java `record`（record 不需要 Lombok）。Lombok 由父 POM 统一 provided 引入（版本走 Spring Boot BOM），子模块**禁止单独声明版本或 scope**
 
 ### 6.1 统一返回体 / 异常 / 请求日志（任务 0.7 建立，所有接口必须遵守）
 
