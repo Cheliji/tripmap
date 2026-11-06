@@ -1,0 +1,11 @@
+[
+  { "prefixes": ["140100", "140200", "140400", "140500", "140600"], "category": "CULTURE" },
+  { "prefixes": ["140"], "category": "CULTURE" },
+  { "prefixes": ["080501"], "category": "PLAY" },
+  { "prefixes": ["110205", "110206", "110207"], "category": "RELIGION" },
+  { "prefixes": ["110204", "110210"], "category": "HERITAGE" },
+  { "prefixes": ["110201", "110202", "110203", "110208", "110209", "110200", "110000"], "category": "SCENERY" },
+  { "prefixes": ["110101", "110102", "110103", "110104", "110100"], "category": "PARK" },
+  { "prefixes": ["110105"], "category": "SQUARE" },
+  { "prefixes": ["06"], "category": "BUSINESS" }
+]
