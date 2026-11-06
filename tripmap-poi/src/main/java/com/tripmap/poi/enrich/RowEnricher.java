@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +40,8 @@ public class RowEnricher {
     private static final String QUERY_SUFFIX = " 开放时间 门票 游玩攻略";
     /** 官方 query 长度上限 128 字符（§4.8） */
     private static final int QUERY_MAX_LEN = 128;
+    /** 联网搜索只取近一年素材（官方搜索语法 after: 操作符内嵌 query，项目方确认口径） */
+    private static final int SEARCH_WITHIN_YEARS = 1;
     /** suggest_duration 合法区间（分钟，§5 导入校验口径前置到增强期，防脏数据落盘） */
     private static final BigDecimal DURATION_MIN = BigDecimal.ZERO;
     private static final BigDecimal DURATION_MAX = new BigDecimal(720);
@@ -47,13 +50,24 @@ public class RowEnricher {
     private final DeepSeekChatClient chatClient;
     private final DistrictAdcodeMapping districtMapping;
     private final CategoryMapping categoryMapping;
+    /** 素材新鲜度下限：after: 操作符取值（当天往前推一年） */
+    private final LocalDate searchAfterDate;
 
     public RowEnricher(DeepSeekSearchClient searchClient, DeepSeekChatClient chatClient,
                        DistrictAdcodeMapping districtMapping, CategoryMapping categoryMapping) {
+        this(searchClient, chatClient, districtMapping, categoryMapping,
+                LocalDate.now().minusYears(SEARCH_WITHIN_YEARS));
+    }
+
+    /** 测试专用：注入固定 after 日期，保证查询词可断言 */
+    RowEnricher(DeepSeekSearchClient searchClient, DeepSeekChatClient chatClient,
+                DistrictAdcodeMapping districtMapping, CategoryMapping categoryMapping,
+                LocalDate searchAfterDate) {
         this.searchClient = searchClient;
         this.chatClient = chatClient;
         this.districtMapping = districtMapping;
         this.categoryMapping = categoryMapping;
+        this.searchAfterDate = searchAfterDate;
     }
 
     /** 单条处理结果：行（enrichStatus=SUCCESS/FAILED）+ 失败步骤/原因（成功为 null） */
@@ -159,13 +173,19 @@ public class RowEnricher {
         return null;
     }
 
-    /** 组合查询："{name} {cityname} 开放时间 门票 游玩攻略"，超 128 字符截断（§4.8） */
+    /**
+     * 组合查询："{name} {cityname} 开放时间 门票 攻略 after:{一年前的今天}"（§4.8）。
+     * after: 为官方搜索语法操作符，将结果限制在近一年内发布；超 128 字符截断主体、
+     * 保留完整 after: 操作符（截断操作符会导致过滤静默失效）。
+     */
     private String buildQuery(RawPoiExcelRow raw) {
-        String query = nullToEmpty(raw.getName()) + " " + nullToEmpty(raw.getCityname()) + QUERY_SUFFIX;
-        if (query.length() > QUERY_MAX_LEN) {
-            query = query.substring(0, QUERY_MAX_LEN);
+        String core = nullToEmpty(raw.getName()) + " " + nullToEmpty(raw.getCityname()) + QUERY_SUFFIX;
+        String afterToken = " after:" + searchAfterDate;
+        int budget = QUERY_MAX_LEN - afterToken.length();
+        if (core.length() > budget) {
+            core = core.substring(0, budget);
         }
-        return query.trim();
+        return (core + afterToken).trim();
     }
 
     private RowOutcome failed(EnrichedPoiExcelRow row, String step, String reason) {

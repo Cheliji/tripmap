@@ -134,25 +134,6 @@ class DeepSeekSearchClientTest {
     }
 
     @Test
-    void 时间范围过滤配置后发送空白不发送() throws Exception {
-        // 配置时：请求体携带 time_range
-        properties.setSearchTimeRange("past_year");
-        server.enqueue(new MockResponse().setResponseCode(200)
-                .addHeader("Content-Type", "application/json; charset=utf-8")
-                .setBody("{\"results\": []}"));
-        newClient().search("q");
-        String body = server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8();
-        assertTrue(body.contains("\"time_range\":\"past_year\""), "配置后应发送 time_range: " + body);
-
-        // 空白时：请求体不携带（默认不过滤）
-        properties.setSearchTimeRange(" ");
-        server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"results\": []}"));
-        newClient().search("q");
-        String body2 = server.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8();
-        assertTrue(!body2.contains("time_range"), "默认不应发送 time_range: " + body2);
-    }
-
-    @Test
     void 最小调用间隔限速生效() {
         properties.setSearchMinIntervalMs(300);
         server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"results\": []}"));

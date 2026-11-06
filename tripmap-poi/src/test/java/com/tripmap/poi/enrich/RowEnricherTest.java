@@ -47,8 +47,10 @@ class RowEnricherTest {
     void setUp() {
         searchClient = mock(DeepSeekSearchClient.class);
         chatClient = mock(DeepSeekChatClient.class);
+        // 注入固定 after 日期，保证查询词可断言
         enricher = new RowEnricher(searchClient, chatClient,
-                DistrictAdcodeMapping.loadDefault(), CategoryMapping.loadDefault());
+                DistrictAdcodeMapping.loadDefault(), CategoryMapping.loadDefault(),
+                java.time.LocalDate.of(2025, 11, 6));
     }
 
     private RawPoiExcelRow rawRow() {
@@ -91,19 +93,35 @@ class RowEnricherTest {
     }
 
     @Test
-    void 组合查询口径为名称加城市加固定后缀() {
+    void 组合查询口径为名称加城市加固定后缀加近一年过滤() {
         stubSearchWithMaterial();
         when(chatClient.chatJson(anyString(), anyString())).thenReturn(VALID_LLM_JSON);
         enricher.enrich(rawRow());
 
         ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
         verify(searchClient).search(queryCaptor.capture());
-        assertEquals("花港观鱼 杭州市 开放时间 门票 游玩攻略", queryCaptor.getValue());
+        assertEquals("花港观鱼 杭州市 开放时间 门票 游玩攻略 after:2025-11-06", queryCaptor.getValue());
 
         ArgumentCaptor<String> userCaptor = ArgumentCaptor.forClass(String.class);
         verify(chatClient).chatJson(anyString(), userCaptor.capture());
         assertTrue(userCaptor.getValue().contains("花港观鱼"), "用户消息应含高德字段");
         assertTrue(userCaptor.getValue().contains("[1] 官网"), "用户消息应含编号素材");
+    }
+
+    @Test
+    void 超长名称截断时保留完整after操作符() {
+        RawPoiExcelRow raw = rawRow();
+        raw.setName("名字".repeat(60)); // 60*2=120 字符，超出 128 上限
+        stubSearchWithMaterial();
+        when(chatClient.chatJson(anyString(), anyString())).thenReturn(VALID_LLM_JSON);
+        enricher.enrich(raw);
+
+        ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
+        verify(searchClient).search(queryCaptor.capture());
+        String query = queryCaptor.getValue();
+        org.junit.jupiter.api.Assertions.assertTrue(query.length() <= 128, "超上限: " + query.length());
+        org.junit.jupiter.api.Assertions.assertTrue(query.endsWith("after:2025-11-06"),
+                "after 操作符必须完整保留（截断会静默失效）: " + query);
     }
 
     @Test

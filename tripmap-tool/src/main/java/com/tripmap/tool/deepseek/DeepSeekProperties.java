@@ -47,14 +47,6 @@ public class DeepSeekProperties {
     /** 联网搜索单次返回条数（官方上限 50，§4.8 取 10） */
     private int searchCount = 10;
 
-    /**
-     * 联网搜索时间范围过滤值（如官方文档定义的近一年取值）。
-     * 空白 = 不发送该参数（不过滤）；参数名暂按 time_range 发送，
-     * <b>以 DeepSeek 官方文档为准</b>——实测接口对未知参数静默忽略（返回 200 且结果不变），
-     * 名称/取值错误不会产生过滤效果也不会报错，启用前必须用真实请求核对文档口径。
-     */
-    private String searchTimeRange = "";
-
     /** LLM 结构化整理温度（低温度保证抽取稳定） */
     private double chatTemperature = 0.2;
 }

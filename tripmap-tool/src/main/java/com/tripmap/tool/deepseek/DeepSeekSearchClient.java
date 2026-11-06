@@ -2,7 +2,6 @@ package com.tripmap.tool.deepseek;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tripmap.common.exception.ExternalApiException;
 import com.tripmap.common.result.ResultCode;
 import org.slf4j.Logger;
@@ -25,6 +24,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * <p>{@code POST {baseUrl}/v1/tools/search}，Bearer 鉴权。请求只带
  * {@code query}/{@code count}/{@code need_content} 三个确定字段；
  * {@code ori_question}/{@code localization} 属可选增强，本模块用不上不发送。</p>
+ *
+ * <p><b>搜索语法</b>（官方文档）：query 中的操作符原样传递给搜索服务——
+ * {@code site:}/{@code -site:}/{@code -}/{@code "..."}/{@code lang:}/{@code after:}/{@code before:}。
+ * <b>时间过滤用 {@code after:} 操作符内嵌 query</b>（如 {@code after:2025-11-06}），
+ * 无独立请求参数；请求体里的未知参数会被接口静默忽略（2026-11-06 实测 17 组候选全部无效）。</p>
  *
  * <p>重试口径按官方文档（2026-11-05 项目方提供）：<b>仅 408/429/5xx 与网络异常退避重试，
  * 其余 4xx 不重试</b>；结果为空不计费且不算失败（返回空列表）。
@@ -105,15 +109,11 @@ public class DeepSeekSearchClient {
 
     private String buildRequestBody(String query) {
         try {
-            ObjectNode root = objectMapper.createObjectNode();
-            root.put("query", query);
-            root.put("count", properties.getSearchCount());
-            root.put("need_content", true);
-            // 时间范围过滤：空白不发送；参数名/取值以官方文档为准（未知参数会被静默忽略，见 properties 注释）
-            if (StringUtils.hasText(properties.getSearchTimeRange())) {
-                root.put("time_range", properties.getSearchTimeRange().trim());
-            }
-            return root.toString();
+            return objectMapper.createObjectNode()
+                    .put("query", query)
+                    .put("count", properties.getSearchCount())
+                    .put("need_content", true)
+                    .toString();
         } catch (Exception e) {
             throw new IllegalStateException("搜索请求体构建失败", e);
         }
