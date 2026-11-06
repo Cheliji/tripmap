@@ -28,7 +28,10 @@ import java.util.regex.Pattern;
 public final class OpenHoursValidator {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    /** HH:mm（HH 00~23） */
     private static final Pattern HH_MM = Pattern.compile("([01]\\d|2[0-3]):[0-5]\\d");
+    /** 24:00 仅允许作为 close（当日结束，= 1440 分钟；24 小时开放场所的通用表达） */
+    private static final String END_OF_DAY = "24:00";
 
     private static final Map<String, Boolean> DAY_KEYS = Map.of(
             "mon", true, "tue", true, "wed", true, "thu", true,
@@ -120,6 +123,9 @@ public final class OpenHoursValidator {
             if (openMin >= closeMin) {
                 return day + " 时段 open 必须早于 close: " + open.asText() + "-" + close.asText();
             }
+            if (openMin == 24 * 60) {
+                return day + " open 不允许为 24:00（仅 close 可用 24:00 表示当日结束）";
+            }
             if (prevClose >= 0 && openMin < prevClose) {
                 return day + " 时段必须按时间先后排列且不重叠";
             }
@@ -128,8 +134,11 @@ public final class OpenHoursValidator {
         return null;
     }
 
-    /** 解析 "HH:mm" 为分钟数；非法返回 null */
+    /** 解析 "HH:mm" 为分钟数；close 额外允许 "24:00"（= 1440，当日结束）；非法返回 null */
     private static Integer parseHhMm(String text) {
+        if (END_OF_DAY.equals(text)) {
+            return 24 * 60;
+        }
         if (text == null || !HH_MM.matcher(text).matches()) {
             return null;
         }

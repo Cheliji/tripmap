@@ -92,6 +92,19 @@ class OpenHoursValidatorTest {
     }
 
     @Test
+    void close允许24点表示当日结束() {
+        // 24 小时开放场所的通用表达（demo 实测：公园类 LLM 输出 00:00-24:00）
+        assertNull(OpenHoursValidator.validate(
+                sevenKeys("[{\"open\": \"00:00\", \"close\": \"24:00\"}]")));
+        // open 不允许 24:00
+        assertNotNull(OpenHoursValidator.validate(
+                sevenKeys("[{\"open\": \"24:00\", \"close\": \"24:00\"}]")));
+        // 24:01 非法
+        assertNotNull(OpenHoursValidator.validate(
+                sevenKeys("[{\"open\": \"00:00\", \"close\": \"24:01\"}]")));
+    }
+
+    @Test
     void 天值必须是数组或null() {
         assertNotNull(OpenHoursValidator.validate("{\"mon\": \"09:00-17:00\"}"));
         assertNotNull(OpenHoursValidator.validate("{\"mon\": 1}"));
