@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,11 @@ import java.util.Optional;
  * ⑤ 失败（含半成品 JSON）→ FAILED，<b>半成品不落盘</b>；
  * ①② 未命中仅 warn（字段留空），行仍可判 SUCCESS。每条 POI = 1 次搜索 + 1 次 LLM，
  * 禁止拆成多次 LLM 调用。</p>
+ *
+ * <p>落盘口径（v1.4）：①②映射结果与已取得的搜索素材在任何失败分支都保留——
+ * 映射是纯代码产物，素材属中间状态（§4.1 红线 4），FAILED 行同样落盘供人工校对。
+ * 搜索无素材时 open_hours 允许纯依高德 opentime2 底稿（source_urls 可为空，§4.10 v1.4）。
+ * SUCCESS 行附 remark：固定模板列出本行 AI 生成字段，供运行时 LLM 时效性说明依据。</p>
  */
 public class RowEnricher {
 
@@ -45,6 +51,8 @@ public class RowEnricher {
     /** suggest_duration 合法区间（分钟，§5 导入校验口径前置到增强期，防脏数据落盘） */
     private static final BigDecimal DURATION_MIN = BigDecimal.ZERO;
     private static final BigDecimal DURATION_MAX = new BigDecimal(720);
+    /** remark 固定模板前缀（v1.4）：只声明哪些字段由 AI 生成，不记录来源与 URL */
+    private static final String REMARK_PREFIX = "以下字段由AI联网搜索整理，可能存在时效差异：";
 
     private final DeepSeekSearchClient searchClient;
     private final DeepSeekChatClient chatClient;
@@ -85,27 +93,27 @@ public class RowEnricher {
      * @return 处理结果；任何一步失败返回 enrichStatus=FAILED 的行，不抛异常
      */
     public RowOutcome enrich(RawPoiExcelRow raw) {
-        // ① district_adcode：未命中仅 warn，行仍可 SUCCESS（§4.2）
-        Optional<String> adcode = districtMapping.lookup(raw.getAdname());
-        if (adcode.isEmpty()) {
-            log.warn("[{}] adname 未命中 district_adcode 映射: adname={}", raw.getAmapId(), raw.getAdname());
-        }
-
-        // ② category：未命中仅 warn，行仍可 SUCCESS（§4.2）
-        Optional<com.tripmap.common.constant.PoiCategory> category = categoryMapping.map(raw.getTypecode());
-        if (category.isEmpty()) {
-            log.warn("[{}] typecode 未命中 category 映射: typecode={}", raw.getAmapId(), raw.getTypecode());
-        }
+        // 基行：19 列原样 + ①②映射（映射结果在任何失败分支都保留，v1.4）
+        EnrichedPoiExcelRow row = EnrichedPoiExcelRow.from(raw);
+        districtMapping.lookup(raw.getAdname()).ifPresentOrElse(
+                row::setDistrictAdcode,
+                () -> log.warn("[{}] adname 未命中 district_adcode 映射: adname={}", raw.getAmapId(), raw.getAdname()));
+        categoryMapping.map(raw.getTypecode()).ifPresentOrElse(
+                c -> row.setCategory(c.getLabel()),
+                () -> log.warn("[{}] typecode 未命中 category 映射: typecode={}", raw.getAmapId(), raw.getTypecode()));
 
         // ③ 联网搜索 1 次
         List<SearchResultItem> results;
         try {
             results = searchClient.search(buildQuery(raw));
         } catch (RuntimeException e) {
-            return failed(EnrichedPoiExcelRow.from(raw), "SEARCH", rootMessage(e));
+            return failed(row, "SEARCH", rootMessage(e));
         }
         SearchMaterialPicker.Material material = SearchMaterialPicker.pick(results);
-        String sourceUrls = SearchMaterialPicker.joinSourceUrls(material.sourceUrls());
+        // 素材属中间状态，FAILED 行同样落盘（§4.1 红线 4）
+        row.setSearchSnippets(StringUtils.hasText(material.snippetsText()) ? material.snippetsText() : null);
+        row.setSourceUrls(StringUtils.hasText(SearchMaterialPicker.joinSourceUrls(material.sourceUrls()))
+                ? SearchMaterialPicker.joinSourceUrls(material.sourceUrls()) : null);
 
         // ④ LLM 结构化整理 1 次
         String llmJson;
@@ -113,32 +121,28 @@ public class RowEnricher {
             llmJson = chatClient.chatJson(EnrichPromptBuilder.systemPrompt(),
                     EnrichPromptBuilder.userMessage(raw, material));
         } catch (RuntimeException e) {
-            return failed(EnrichedPoiExcelRow.from(raw), "LLM", rootMessage(e));
+            return failed(row, "LLM", rootMessage(e));
         }
         LlmResponseParser.LlmEnrichResult llmResult;
         try {
             llmResult = LlmResponseParser.parse(llmJson);
         } catch (IllegalArgumentException e) {
-            return failed(EnrichedPoiExcelRow.from(raw), "LLM", "LLM 输出解析失败: " + e.getMessage());
+            return failed(row, "LLM", "LLM 输出解析失败: " + e.getMessage());
         }
 
-        // ⑤ 输出校验（半成品不落盘：校验全部通过后才组装 SUCCESS 行）
-        String error = validate(llmResult, sourceUrls);
+        // ⑤ 输出校验（半成品不落盘：校验全部通过后才写入 LLM 字段）
+        String error = validate(llmResult);
         if (error != null) {
-            return failed(EnrichedPoiExcelRow.from(raw), "VALIDATE", error);
+            return failed(row, "VALIDATE", error);
         }
 
-        EnrichedPoiExcelRow row = EnrichedPoiExcelRow.from(raw);
-        adcode.ifPresent(row::setDistrictAdcode);
-        category.ifPresent(c -> row.setCategory(c.getLabel()));
         row.setSummary(llmResult.summary());
         row.setOpenHours(llmResult.openHoursJson());
-        row.setTags(String.join(";", llmResult.tags()));
+        row.setTags(llmResult.tags().isEmpty() ? null : String.join(";", llmResult.tags()));
         row.setTicketPrice(llmResult.ticketPrice());
         row.setSuggestDuration(llmResult.suggestDuration());
         row.setOfficialAccount(llmResult.officialAccount());
-        row.setSearchSnippets(material.snippetsText());
-        row.setSourceUrls(sourceUrls);
+        row.setRemark(buildRemark(llmResult));
         row.setEnrichStatus("SUCCESS");
         return new RowOutcome(row, null, null);
     }
@@ -146,12 +150,14 @@ public class RowEnricher {
     /**
      * 第⑤步输出校验（§4.2）：
      * open_hours 过 JSON Schema 校验器（防线 1，与功能三同一实现）；
-     * tags 逐条在受控词表内；suggest_duration 在 (0, 720]；
-     * 交叉校验：open_hours 非空 ⇒ source_urls 非空（§4.10 硬性约定）。
+     * tags 逐条在受控词表内；suggest_duration 在 (0, 720]。
+     *
+     * <p>来源约束（v1.4 放宽）：搜索无素材时 open_hours 允许纯依高德 opentime2 底稿，
+     * source_urls 可为空；搜索有素材时素材 URL 已落盘，LLM 仅被允许从素材取证（Prompt 约束）。
      *
      * @return null 表示通过，否则返回错误描述
      */
-    private String validate(LlmResponseParser.LlmEnrichResult result, String sourceUrls) {
+    private String validate(LlmResponseParser.LlmEnrichResult result) {
         String openHoursError = OpenHoursValidator.validate(result.openHoursJson());
         if (openHoursError != null) {
             return "open_hours 校验失败: " + openHoursError;
@@ -167,10 +173,31 @@ public class RowEnricher {
                 return "suggest_duration 超出合法区间 (0, 720]: " + result.suggestDuration();
             }
         }
-        if (StringUtils.hasText(result.openHoursJson()) && !StringUtils.hasText(sourceUrls)) {
-            return "open_hours 非空但 source_urls 为空（违反 §4.10 来源约束）";
-        }
         return null;
+    }
+
+    /** remark 组装（v1.4）：固定模板列出本行 AI 生成的非空字段；无 AI 字段返回 null */
+    private String buildRemark(LlmResponseParser.LlmEnrichResult result) {
+        List<String> fields = new ArrayList<>();
+        if (StringUtils.hasText(result.summary())) {
+            fields.add("景点概述");
+        }
+        if (StringUtils.hasText(result.openHoursJson())) {
+            fields.add("开放时间");
+        }
+        if (!result.tags().isEmpty()) {
+            fields.add("标签");
+        }
+        if (StringUtils.hasText(result.ticketPrice())) {
+            fields.add("门票价格");
+        }
+        if (StringUtils.hasText(result.suggestDuration())) {
+            fields.add("建议游玩时长");
+        }
+        if (StringUtils.hasText(result.officialAccount())) {
+            fields.add("官方公众号");
+        }
+        return fields.isEmpty() ? null : REMARK_PREFIX + String.join("、", fields);
     }
 
     /**

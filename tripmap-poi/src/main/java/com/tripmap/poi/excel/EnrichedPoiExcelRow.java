@@ -40,6 +40,12 @@ public class EnrichedPoiExcelRow extends RawPoiExcelRow {
     /** 景点公众号名称，可空，禁止猜测拼合（§4.1 红线 3） */
     @ExcelProperty("official_account")
     private String officialAccount;
+    /**
+     * AI 生成字段声明（v1.4）：代码按固定模板组装，列出本行由 AI 生成的非空字段，
+     * 供运行时 LLM 介绍景点/给建议时作时效性说明依据；不记录内容来源与 URL。
+     */
+    @ExcelProperty("remark")
+    private String remark;
     /** 关键素材摘录（带 URL），供人工校对查证（§4.1 红线 4） */
     @ExcelProperty("search_snippets")
     private String searchSnippets;

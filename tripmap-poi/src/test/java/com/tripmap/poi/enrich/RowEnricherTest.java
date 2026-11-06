@@ -90,6 +90,51 @@ class RowEnricherTest {
         assertTrue(row.getSearchSnippets().contains("[1] 官网"));
         assertEquals("https://a.com/1", row.getSourceUrls());
         assertEquals("花港观鱼", row.getName(), "raw 19 列原样保留");
+        assertTrue(row.getRemark().contains("由AI联网搜索整理"), "remark 应声明 AI 生成");
+        assertTrue(row.getRemark().contains("开放时间") && row.getRemark().contains("建议游玩时长"));
+        assertTrue(!row.getRemark().contains("官方公众号"), "official_account 为 null 不应列入 remark");
+    }
+
+    @Test
+    void remark只列出实际生成的字段() {
+        stubSearchWithMaterial();
+        when(chatClient.chatJson(anyString(), anyString())).thenReturn(
+                "{\"summary\": \"只有概述\", \"tags\": [], \"open_hours\": null}");
+
+        RowEnricher.RowOutcome outcome = enricher.enrich(rawRow());
+
+        assertTrue(outcome.success());
+        assertEquals("以下字段由AI联网搜索整理，可能存在时效差异：景点概述", outcome.row().getRemark());
+    }
+
+    @Test
+    void 搜索失败行仍保留映射结果() {
+        when(searchClient.search(anyString()))
+                .thenThrow(new ExternalApiException(ResultCode.EXTERNAL_SEARCH, "DeepSeek", true));
+
+        RowEnricher.RowOutcome outcome = enricher.enrich(rawRow());
+
+        assertEquals("FAILED", outcome.row().getEnrichStatus());
+        assertEquals("SEARCH", outcome.failStep());
+        assertEquals("330106", outcome.row().getDistrictAdcode(), "FAILED 行必须保留①映射结果（v1.4）");
+        assertEquals("公园乐园", outcome.row().getCategory(), "FAILED 行必须保留②映射结果（v1.4）");
+    }
+
+    @Test
+    void LLM失败行保留映射与已取得的搜索素材() {
+        stubSearchWithMaterial();
+        when(chatClient.chatJson(anyString(), anyString()))
+                .thenThrow(new ExternalApiException(ResultCode.EXTERNAL_LLM, "DeepSeek", true));
+
+        RowEnricher.RowOutcome outcome = enricher.enrich(rawRow());
+
+        assertEquals("FAILED", outcome.row().getEnrichStatus());
+        assertEquals("LLM", outcome.failStep());
+        assertEquals("330106", outcome.row().getDistrictAdcode());
+        assertEquals("公园乐园", outcome.row().getCategory());
+        assertTrue(outcome.row().getSearchSnippets().contains("[1] 官网"), "素材属中间状态须落盘（§4.1 红线 4）");
+        assertEquals("https://a.com/1", outcome.row().getSourceUrls());
+        assertNull(outcome.row().getSummary(), "半成品不落盘");
     }
 
     @Test
@@ -201,15 +246,15 @@ class RowEnricherTest {
     }
 
     @Test
-    void open_hours非空但无来源URL标FAILED交叉校验() {
+    void 搜索无素材时open_hours参考高德底稿判SUCCESS() {
         when(searchClient.search(anyString())).thenReturn(List.of()); // 搜索成功但无结果
         when(chatClient.chatJson(anyString(), anyString())).thenReturn(VALID_LLM_JSON);
 
         RowEnricher.RowOutcome outcome = enricher.enrich(rawRow());
 
-        assertEquals("FAILED", outcome.row().getEnrichStatus());
-        assertEquals("VALIDATE", outcome.failStep());
-        assertTrue(outcome.failReason().contains("source_urls"));
+        assertTrue(outcome.success(), "搜索无素材时 open_hours 纯依高德底稿应判 SUCCESS（v1.4 放宽）");
+        assertNull(outcome.row().getSourceUrls());
+        assertTrue(outcome.row().getOpenHours().contains("\"mon\":[{"));
     }
 
     @Test
