@@ -2,6 +2,7 @@ package com.tripmap.tool.deepseek;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tripmap.common.exception.ExternalApiException;
 import com.tripmap.common.result.ResultCode;
 import org.slf4j.Logger;
@@ -104,11 +105,15 @@ public class DeepSeekSearchClient {
 
     private String buildRequestBody(String query) {
         try {
-            return objectMapper.createObjectNode()
-                    .put("query", query)
-                    .put("count", properties.getSearchCount())
-                    .put("need_content", true)
-                    .toString();
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("query", query);
+            root.put("count", properties.getSearchCount());
+            root.put("need_content", true);
+            // 时间范围过滤：空白不发送；参数名/取值以官方文档为准（未知参数会被静默忽略，见 properties 注释）
+            if (StringUtils.hasText(properties.getSearchTimeRange())) {
+                root.put("time_range", properties.getSearchTimeRange().trim());
+            }
+            return root.toString();
         } catch (Exception e) {
             throw new IllegalStateException("搜索请求体构建失败", e);
         }

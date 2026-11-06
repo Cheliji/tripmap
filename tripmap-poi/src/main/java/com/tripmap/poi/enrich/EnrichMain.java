@@ -87,6 +87,11 @@ public class EnrichMain {
         if (StringUtils.hasText(modelEnv)) {
             properties.setChatModel(modelEnv.trim());
         }
+        // 可选：搜索时间范围过滤（值以 DeepSeek 官方文档为准；接口静默忽略未知参数，启用前需核对）
+        String timeRangeEnv = System.getenv("DEEPSEEK_SEARCH_TIME_RANGE");
+        if (StringUtils.hasText(timeRangeEnv)) {
+            properties.setSearchTimeRange(timeRangeEnv.trim());
+        }
 
         RowEnricher enricher;
         try {
@@ -350,7 +355,8 @@ public class EnrichMain {
                   --input        必填，功能一产出的 {city}-poi-raw.xlsx
                   --output       选填，缺省输入同目录 {city}-poi-enriched.xlsx
                   --interval-ms  选填，行间调用间隔（默认 2000，环境变量 ENRICH_INTERVAL_MS 可配）
-                环境变量: DEEPSEEK_API_KEY（必填）；DEEPSEEK_BASE_URL、DEEPSEEK_MODEL（选填）
+                环境变量: DEEPSEEK_API_KEY（必填）；DEEPSEEK_BASE_URL、DEEPSEEK_MODEL、
+                          DEEPSEEK_SEARCH_TIME_RANGE（选填，搜索时间范围过滤，取值以 DeepSeek 官方文档为准）
                 断点续跑: enrich_status=SUCCESS 的行冻结不碰；FAILED/空缺行重跑并覆盖
                 """);
     }
