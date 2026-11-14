@@ -236,6 +236,10 @@ public class EnrichMain {
     /**
      * 全量重写输出（临时文件 + 原子移动）：即使进程死在写入中途，
      * 旧文件完好，下次启动读到的仍是上一个一致快照。
+     *
+     * <p>Windows 下输出文件可能被人工查看（Excel/WPS 打开）瞬时锁定，
+     * 移动失败做有限重试（3 次、间隔 2s），避免 3 小时长跑被一次误开文件杀掉；
+     * 重试耗尽仍失败则抛 {@link IOException} 终止本次运行（断点可续）。
      */
     static void writeSnapshot(Path output, java.util.Collection<EnrichedPoiExcelRow> rows) throws IOException {
         if (output.getParent() != null) {
@@ -245,10 +249,24 @@ public class EnrichMain {
         EasyExcel.write(tmp.toString(), EnrichedPoiExcelRow.class)
                 .sheet("enriched")
                 .doWrite(new ArrayList<>(rows));
-        try {
-            Files.move(tmp, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(tmp, output, StandardCopyOption.REPLACE_EXISTING);
+        int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                try {
+                    Files.move(tmp, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, output, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            } catch (IOException e) {
+                if (attempt < maxAttempts) {
+                    log.warn("输出快照移动失败（第 {}/{} 次，可能正被 Excel 等占用），2s 后重试: {}",
+                            attempt, maxAttempts, e.getMessage());
+                    sleep(2000);
+                    continue;
+                }
+                throw e;
+            }
         }
     }
 
