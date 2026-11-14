@@ -35,7 +35,6 @@ class PoiInsertSqlBuilderTest {
         assertFalse(sql.contains("amap_id = VALUES(amap_id)")); // 冲突键不进更新列
         assertFalse(sql.contains("created_at = VALUES(created_at)")); // 创建时间只插不更
         assertTrue(sql.contains("updated_at = NOW()"));
-        assertTrue(sql.contains("'高德+AI增强'"));
         assertTrue(sql.contains(", 1,")); // status=1
         assertTrue(sql.trim().endsWith(";"));
         // 一条语句一行（无换行的裸语句行便于人工逐条执行）

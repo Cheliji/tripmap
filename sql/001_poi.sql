@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS poi (
     photos           TEXT          NULL COMMENT '图片URL（分号分隔）',
     official_account VARCHAR(128)  NULL COMMENT '景点公众号名称',
     remark           VARCHAR(512)  NULL COMMENT 'AI生成字段声明（运行时LLM时效性说明依据，§4.1 v1.4）',
-    source           VARCHAR(32)   NOT NULL DEFAULT '高德+AI增强' COMMENT '数据来源（与8.1"高德/人工"枚举兼容）',
     status           TINYINT       NOT NULL DEFAULT 1 COMMENT '1正常 2闭园 3下架（检索硬过滤字段）',
     created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP

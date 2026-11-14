@@ -28,11 +28,8 @@ final class PoiInsertSqlBuilder {
             "city", "district", "district_adcode", "longitude", "latitude",
             "category", "tags", "rating", "cost", "ticket_price", "suggest_duration",
             "open_hours", "opentime2", "brief", "address", "tel", "photos",
-            "official_account", "remark", "source", "status",
+            "official_account", "remark", "status",
             "created_at", "updated_at");
-
-    /** source/status 固定值（§5.2：'高德+AI增强' / 1=正常） */
-    private static final String SOURCE = "高德+AI增强";
 
     private PoiInsertSqlBuilder() {
     }
@@ -65,7 +62,6 @@ final class PoiInsertSqlBuilder {
         values.add(str(p.photos()));
         values.add(str(p.officialAccount()));
         values.add(str(p.remark()));
-        values.add(str(SOURCE));
         values.add("1");
         values.add("NOW()");
         values.add("NOW()");
