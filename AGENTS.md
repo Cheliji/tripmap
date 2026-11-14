@@ -37,11 +37,11 @@ tripmap 是一个以 **Agent 编排**为核心的旅游行程规划系统：用�
 
 | 文档 | 说明 |
 | --- | --- |
-| [tripmap_MVP设计说明书.md](tripmap_MVP设计说明书.md) | 唯一设计准绳（v1.0 已通过），所有实现以它为准 |
-| [tripmap-poi功能设计说明书.md](tripmap-poi功能设计说明书.md) | tripmap-poi 离线 POI 数据加工模块（采集/增强/入库三脚本）的唯一实现依据 |
-| [tripmap数据库设计说明书.md](tripmap数据库设计说明书.md) | 数据库唯一文字依据：设计原则、七表字段口径、机制落点、ORM 约定、PG 迁移清单（任务 1.2.5） |
-| [TASKS.md](TASKS.md) | 任务拆解与执行顺序（阶段 0 → M1~M4 → M5 评测），开发按此推进并勾选 |
-| [AGENTS.md](AGENTS.md) | 本文件 |
+| [tripmap_MVP设计说明书.md](docs/tripmap_MVP设计说明书.md) | 唯一设计准绳（v1.0 已通过），所有实现以它为准 |
+| [tripmap-poi功能设计说明书.md](docs/tripmap-poi功能设计说明书.md) | tripmap-poi 离线 POI 数据加工模块（采集/增强/入库三脚本）的唯一实现依据 |
+| [tripmap数据库设计说明书.md](docs/tripmap数据库设计说明书.md) | 数据库唯一文字依据：设计原则、七表字段口径、机制落点、ORM 约定、PG 迁移清单（任务 1.2.5） |
+| [TASKS.md](docs/TASKS.md) | 任务拆解与执行顺序（阶段 0 → M1~M4 → M5 评测），开发按此推进并勾选 |
+| [AGENTS.md](AGENTS.md) | 本文件（根目录常驻，编码代理约定俗成位置） |
 
 ## 4. 项目结构
 
@@ -131,7 +131,7 @@ tripmap/
 
 ## 7. 工作流（每次会话）
 
-1. 打开 [TASKS.md](TASKS.md)，按依赖顺序取**一个**未勾选任务；
+1. 打开 [TASKS.md](docs/TASKS.md)，按依赖顺序取**一个**未勾选任务；
 2. 实现 + 自测（该任务相关单测通过）；
 3. 在 TASKS.md 勾选该任务；
 4. 本地 git 提交（见第 8 节）；
