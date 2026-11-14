@@ -6,9 +6,9 @@
 --   session_checkpoint = 图执行快照：每节点一条追加式记录，恢复/回滚依据（M3 接入 StateGraph，可清理）
 --   session_message    = 对话"实录"：人说了什么、系统答了什么（SSE 进度事件不入库）
 --   itinerary*         = 交付"产品"：单版本设计（评测回退是流程内动作，重跑即覆盖，次数记 session.plan_count）
+-- 说明：全表不使用物理外键（与 001_poi.sql 口径一致：离线批量写入与重跑脚本不被约束卡死；PG 迁移少一项行为差异核对）。
+--       表间关联为逻辑外键，靠字段命名（xxx_id）+ 应用层维护 + 索引保证；本脚本可重复执行（IF NOT EXISTS 幂等）。
 -- 执行前置：000_create_database.sql、001_poi.sql（本脚本已随 1.2.2/1.2.3 在本地 tripmap 库实际执行）
--- 注意：本脚本为一次性建表脚本，不可重复执行（文件尾部 FK 集中声明段不支持幂等）；
---       表定义段虽用 IF NOT EXISTS，重复执行仍会在 ALTER 处报 FK 重名
 -- 方言中立口径：本脚本以 MySQL 8 可执行版为准；PostgreSQL 迁移差异已用【PG】注释登记（任务 1.2.5 清单同步维护）
 
 USE tripmap;
@@ -119,22 +119,14 @@ CREATE TABLE IF NOT EXISTS itinerary_day_poi (
     KEY idx_poi (poi_id)
 ) COMMENT='行程日内站点表';
 
--- 外键集中声明（001_poi.sql 未用物理外键因离线导入脚本批量写入；此处为运行时表，启用约束保证引用完整）
-ALTER TABLE session_checkpoint
-    ADD CONSTRAINT fk_checkpoint_session FOREIGN KEY (session_id) REFERENCES session (id) ON DELETE CASCADE;
-ALTER TABLE session_message
-    ADD CONSTRAINT fk_message_session FOREIGN KEY (session_id) REFERENCES session (id) ON DELETE CASCADE;
-ALTER TABLE itinerary
-    ADD CONSTRAINT fk_itinerary_session FOREIGN KEY (session_id) REFERENCES session (id) ON DELETE CASCADE;
-ALTER TABLE itinerary_day
-    ADD CONSTRAINT fk_day_itinerary FOREIGN KEY (itinerary_id) REFERENCES itinerary (id) ON DELETE CASCADE;
-ALTER TABLE itinerary_day_poi
-    ADD CONSTRAINT fk_daypoi_day FOREIGN KEY (day_id) REFERENCES itinerary_day (id) ON DELETE CASCADE,
-    ADD CONSTRAINT fk_daypoi_poi FOREIGN KEY (poi_id) REFERENCES poi (id);
+-- ---------------------------------------------------------------------------
+-- 表间逻辑关联一览（无物理外键，应用层保证）：
+--   session_checkpoint.session_id / session_message.session_id / itinerary.session_id → session.id
+--   itinerary_day.itinerary_id → itinerary.id
+--   itinerary_day_poi.day_id → itinerary_day.id；itinerary_day_poi.poi_id → poi.id（引用完整性由应用层校验）
 
 -- 【PG】迁移差异登记（任务 1.2.5 清单同步）：
 --   1. AUTO_INCREMENT → GENERATED ALWAYS AS IDENTITY；TINYINT → SMALLINT（PG无TINYINT）
 --   2. ON UPDATE CURRENT_TIMESTAMP → PG无此特性，用触发器或应用层维护 updated_at
 --   3. 索引/唯一键语法 → 内联约束 + CREATE INDEX；TIME/DATE/JSON → jsonb（JSON内容校验收敛在代码层）
---   4. 物理外键语法 PG 通用；ON DELETE CASCADE 语义一致
---   5. session 为 PG 保留字（非保留，可用但不推荐）→ PG 侧建议改名 session_ 或加引号，迁移时统一处理
+--   4. session 为 PG 保留字（非保留，可用但不推荐）→ PG 侧建议改名 session_ 或加引号，迁移时统一处理
