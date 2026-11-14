@@ -20,11 +20,11 @@
             <artifactId>tripmap-common</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- 数据访问基础：JDBC + HikariCP 连接池（任务 0.5 接入 MySQL 8）
-             此处只引入 JDBC，ORM（MyBatis-Plus / JPA）待任务 1.2.4 择一再引入 -->
+        <!-- ORM：MyBatis-Plus（任务 1.2.4 定案 MyBatis-Plus / JPA 择一，见《tripmap数据库设计说明书》§5）
+             版本由父 POM dependencyManagement 托管，此处不声明版本 -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>

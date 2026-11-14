@@ -34,6 +34,8 @@
         <test.excluded.groups>integration</test.excluded.groups>
         <!-- tripmap-poi Excel 读写（脚本专用依赖，见《tripmap-poi功能设计说明书》§6） -->
         <easyexcel.version>3.3.4</easyexcel.version>
+        <!-- ORM：MyBatis-Plus（任务 1.2.4 定案，见《tripmap数据库设计说明书》§5），Boot 3 专用 starter -->
+        <mybatis-plus.version>3.5.7</mybatis-plus.version>
     </properties>
 
     <dependencyManagement>
@@ -59,6 +61,12 @@
                 <groupId>com.alibaba</groupId>
                 <artifactId>easyexcel</artifactId>
                 <version>${easyexcel.version}</version>
+            </dependency>
+            <!-- ORM 版本统一托管（子模块禁止单独声明版本，AGENTS.md 第 6 节） -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
