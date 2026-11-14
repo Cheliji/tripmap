@@ -1,7 +1,5 @@
 package com.tripmap.tool.spi;
 
-import com.tripmap.common.dto.tool.ToolInput;
-import com.tripmap.common.dto.tool.ToolOutput;
 import com.tripmap.common.exception.BizException;
 import com.tripmap.common.exception.ExternalApiException;
 

@@ -1,4 +1,4 @@
-package com.tripmap.common.dto.tool;
+package com.tripmap.tool.spi;
 
 /**
  * 工具输入 DTO 标记接口（任务 2.1.1）。
@@ -7,6 +7,9 @@ package com.tripmap.common.dto.tool;
  * 编译期将"工具契约"与领域无关的任意对象区分开；
  * 输入一律为强类型 DTO，由编排节点从图 State（背景 Schema）装配，
  * 不接收自然语言原文（AGENTS.md §1：事实全部来自工具）。</p>
+ *
+ * <p>领域 DTO 不预定义：随各工具任务（2.2～2.7）实现时按需定义，
+ * 但均须实现本接口。</p>
  */
 public interface ToolInput {
 }
