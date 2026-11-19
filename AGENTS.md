@@ -86,6 +86,7 @@ tripmap/
 - 接口文档统一走 springdoc-openapi（Swagger UI：/swagger-ui/index.html）；新增 Controller 接口**必须**加 Swagger 注解描述：`@Tag`（类级分组）、`@Operation`（接口摘要）、`@Parameter`（参数说明）；请求/响应 DTO 字段加 `@Schema` 说明，禁止裸接口入库
 - 外部 API 客户端必须带超时、重试（指数退避）、限流；高德调用遵守 QPS
 - 每个工具/节点实现必须配单测；真实外部调用测试打 `@Tag("integration")` 标签，默认跳过
+- **测试必须输出人读日志**（2026-11 定规）：每个测试用例必须用 `System.out` 打印场景说明、关键输入、中间计算值与最终输出（中文标签、关键数值对齐成表），让人**不看断言**也能直观核对程序行为是否符合预期；断言负责机器校验，日志负责人工 review——跑一遍测试 console 应能直接当演示看
 - `tripmap-poi` 离线脚本不注册 Spring Bean、不走统一返回体；其中 LLM 仅允许对**联网搜索取证素材**做结构化整理，事实字段（开放时间等）必须带 source 且经人工校对后入库（《tripmap-poi功能设计说明书》§4）
 - 注释与提交信息使用中文，关键算法（聚类锚定、双开放路径、回退路由）处写明设计说明书章节出处
 - **普通 POJO/DTO/数据载体类一律使用 Lombok 消除样板代码，禁止手写 getter/setter/toString/equals/hashCode**：典型组合 `@Data + @Builder + @NoArgsConstructor + @AllArgsConstructor`（EasyExcel/MyBatis/Spring 反射实例化依赖无参构造，凡加 `@Builder` 必须同时补 `@NoArgsConstructor`/`@AllArgsConstructor`）；含敏感字段（如 apiKey）的类改用 `@Getter`/`@Setter`，避免 `@Data` 默认 toString 泄露密钥；不可变数据载体优先 Java `record`（record 不需要 Lombok）。Lombok 由父 POM 统一 provided 引入（版本走 Spring Boot BOM），子模块**禁止单独声明版本或 scope**
