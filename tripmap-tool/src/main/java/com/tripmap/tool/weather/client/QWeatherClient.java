@@ -94,7 +94,7 @@ public class QWeatherClient {
     public JsonNode get(String path, Map<String, String> params) {
         Map<String, String> allParams = new LinkedHashMap<>(params);
         UriComponentsBuilder uriBuilder = UriComponentsBuilder
-                .fromUriString(properties.getApiHost() + path);
+                .fromUriString(baseUrl() + path);
         allParams.forEach(uriBuilder::queryParam);
         URI uri = uriBuilder.build().encode().toUri();
 
@@ -172,6 +172,18 @@ public class QWeatherClient {
             }
         }
         return raw;
+    }
+
+    /**
+     * API Host 归一化：和风控制台给出的 Host 形如 {@code abcxyz.qweatherapi.com}（不含 scheme），
+     * 请求必须走 HTTPS（接口文档 §2.3）；已带 scheme 则原样使用。
+     */
+    private String baseUrl() {
+        String host = properties.getApiHost();
+        if (host.startsWith("http://") || host.startsWith("https://")) {
+            return host;
+        }
+        return "https://" + host;
     }
 
     /** 坐标格式化为最多两位小数（接口文档 §2.3） */

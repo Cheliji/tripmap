@@ -19,7 +19,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "tripmap.qweather")
 public class QWeatherProperties {
 
-    /** 和风独立 API Host（每人唯一，含 https:// 前缀，如 https://h2a9cf3mhs.xy.qweatherapi.com） */
+    /** 和风独立 API Host（每人唯一，形如 abcxyz.qweatherapi.com，可不带 scheme，客户端自动补 https://） */
     private String apiHost;
 
     /** 和风 API KEY（请求头 X-QW-Api-Key 注入；MVP 用 API KEY，JWT 预留开关） */
