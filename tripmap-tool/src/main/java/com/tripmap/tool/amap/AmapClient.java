@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tripmap.common.exception.ExternalApiException;
 import com.tripmap.common.result.ResultCode;
+import com.tripmap.tool.util.TokenBucketRateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;

@@ -1,4 +1,4 @@
-package com.tripmap.tool.amap;
+package com.tripmap.tool.util;
 
 import org.junit.jupiter.api.Test;
 
