@@ -15,6 +15,25 @@ tripmap:
     max-retries: ${AMAP_MAX_RETRIES:2}
     retry-base-delay-ms: ${AMAP_RETRY_BASE_DELAY_MS:500}
 
+  # 和风天气客户端配置（任务 2.3）
+  # api-host/api-key 为凭证，见 application-{env}.yml；此处只放与环境无关的调优项
+  qweather:
+    # MVP 单城市杭州：城市中心坐标（GCJ-02，与高德 POI 同系），写死省去 geo 解析请求；扩城市时再引入 geo/v2/city
+    default-city: ${TRIPMAP_DEFAULT_CITY:杭州}
+    city-coordinate-lat: ${QWEATHER_CITY_LAT:30.25}
+    city-coordinate-lon: ${QWEATHER_CITY_LON:120.15}
+    # 预报窗口与降级阈值（方案 A：>10 天降级；两值分离，将来启用 v7 15d 只改配置）
+    forecast-max-days: ${QWEATHER_FORECAST_MAX_DAYS:10}
+    degrade-threshold: ${QWEATHER_DEGRADE_THRESHOLD:10}
+    # QPM 限流（令牌桶）、超时与重试（指数退避）
+    qpm: ${QWEATHER_QPM:50}
+    connect-timeout-ms: ${QWEATHER_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${QWEATHER_READ_TIMEOUT_MS:10000}
+    max-retries: ${QWEATHER_MAX_RETRIES:2}
+    retry-base-delay-ms: ${QWEATHER_RETRY_BASE_DELAY_MS:500}
+    # Redis 缓存 TTL（TASKS 2.3.4：30～60 分钟）
+    cache-ttl-minutes: ${QWEATHER_CACHE_TTL_MINUTES:30}
+
 spring:
   application:
     name: tripmap

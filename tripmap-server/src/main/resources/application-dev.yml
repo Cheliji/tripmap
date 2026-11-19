@@ -27,6 +27,10 @@ tripmap:
   amap:
     # 高德 Web 服务 API Key：环境变量注入，禁止入库（AGENTS.md 第 5 节）；缺省留空，装配时启动失败
     api-key: ${AMAP_API_KEY:}
+  qweather:
+    # 和风凭证：API Host（控制台-设置 查看，每人独立）+ API KEY；缺省留空，装配时启动失败
+    api-host: ${QWEATHER_API_HOST:}
+    api-key: ${QWEATHER_API_KEY:}
   llm:
     provider: ${LLM_PROVIDER:deepseek}
     deepseek:
