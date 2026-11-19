@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * 召回打分器（任务 2.2.2，设计说明书 §6.1 第 2 步"标签加权召回"）。
  *
- * <p><b>打分式</b>（2026-11 定案，各项独立有界，总分范围约 [-10, +13]）：</p>
+ * <p><b>打分式</b>（2026-11 定案，各项独立有界，总分范围 [-10, +18]）：</p>
  * <pre>
  * score = 标签均分          // POI 全部 tags 对应 LLM 权重的平均值（防"标签多=分数高"偏置），无命中 = 0
  *       + category 权重     // LLM 按背景对 8 分类赋值，未赋值 = 0
@@ -57,8 +57,9 @@ public class PoiRecallScorer {
     /**
      * 标签均分：POI 全部 tags 对应权重的平均值——一个强相关标签（+5）应与
      * 五个弱相关标签（+1）打平，而不是碾压；tags 为空或全部未命中（权重 0）记 0。
+     * public：除包内单测外，供真实库验证/评测归因打印打分明细。
      */
-    double tagScore(List<String> tags, Map<String, Double> tagWeights) {
+    public double tagScore(List<String> tags, Map<String, Double> tagWeights) {
         if (tags == null || tags.isEmpty() || tagWeights.isEmpty()) {
             return 0.0;
         }
@@ -70,7 +71,7 @@ public class PoiRecallScorer {
     }
 
     /** 分类权重：未赋值（用户未表达该分类偏好）记 0 */
-    double categoryScore(String category, Map<String, Double> categoryWeights) {
+    public double categoryScore(String category, Map<String, Double> categoryWeights) {
         if (category == null) {
             return 0.0;
         }
@@ -78,7 +79,7 @@ public class PoiRecallScorer {
     }
 
     /** rating 映射：天然 0~5 刻度取原值，null → 0，超出 ratingMax 截断 */
-    double ratingScore(java.math.BigDecimal rating) {
+    public double ratingScore(java.math.BigDecimal rating) {
         if (rating == null) {
             return 0.0;
         }
@@ -90,7 +91,7 @@ public class PoiRecallScorer {
      * {@code completenessBonusPerField}，封顶 {@code completenessBonusCap}——
      * 信源齐全的景点优先，未知数据的冷门景点作池底补充（2026-11 决策）。
      */
-    double completenessBonus(PoiCandidate candidate) {
+    public double completenessBonus(PoiCandidate candidate) {
         int nonNull = 0;
         if (candidate.getSuggestDuration() != null) {
             nonNull++;
