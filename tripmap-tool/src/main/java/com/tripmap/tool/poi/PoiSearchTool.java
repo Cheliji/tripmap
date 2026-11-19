@@ -147,7 +147,8 @@ public class PoiSearchTool implements TripTool<PoiSearchInput, PoiSearchOutput> 
      */
     static LambdaQueryWrapper<PoiEntity> buildFilterWrapper(PoiSearchInput input) {
         LambdaQueryWrapper<PoiEntity> wrapper = Wrappers.lambdaQuery();
-        wrapper.eq(PoiEntity::getCity, input.getCity())
+        // city 模糊匹配：库中存高德原始城市名（如"杭州市"），输入"杭州"也应命中（2026-11 定）
+        wrapper.like(PoiEntity::getCity, input.getCity())
                 .eq(PoiEntity::getStatus, STATUS_NORMAL);
         if (input.getTicketPriceCap() != null) {
             wrapper.and(w -> w.isNull(PoiEntity::getTicketPrice)
@@ -165,7 +166,8 @@ public class PoiSearchTool implements TripTool<PoiSearchInput, PoiSearchOutput> 
      * 与 {@link #buildFilterWrapper} 同口径：NULL 字段放行、上限 null 不约束。
      */
     static boolean passesHardFilter(PoiEntity entity, PoiSearchInput input) {
-        if (!input.getCity().equals(entity.getCity())) {
+        // 与 buildFilterWrapper 同口径：模糊匹配（contains），null 库值不命中
+        if (entity.getCity() == null || !entity.getCity().contains(input.getCity())) {
             return false;
         }
         if (entity.getStatus() == null || entity.getStatus() != STATUS_NORMAL) {

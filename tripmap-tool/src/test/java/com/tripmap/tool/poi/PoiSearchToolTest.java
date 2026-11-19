@@ -114,8 +114,8 @@ class PoiSearchToolTest {
         String sql = PoiSearchTool.buildFilterWrapper(input).getCustomSqlSegment();
         System.out.println("\n========== 场景：硬过滤 SQL（预算 200 元、时长上限 360 分钟） ==========");
         System.out.printf("  %s%n", sql);
-        System.out.println("  预期含: city/status 等值 + (ticket_price IS NULL OR <= 200) + (suggest_duration IS NULL OR <= 360)");
-        assertTrue(sql.contains("city"), sql);
+        System.out.println("  预期含: city 模糊匹配 + status 等值 + (ticket_price IS NULL OR <= 200) + (suggest_duration IS NULL OR <= 360)");
+        assertTrue(sql.contains("city LIKE"), sql);
         assertTrue(sql.contains("status"), sql);
         assertTrue(sql.contains("ticket_price IS NULL"), sql);
         assertTrue(sql.contains("ticket_price <="), sql);
@@ -172,12 +172,23 @@ class PoiSearchToolTest {
         otherCity.setCity("上海");
         System.out.printf("  city=上海(异城) : 放行=%s（预期 false）%n",
                 PoiSearchTool.passesHardFilter(otherCity, input));
+        // 模糊匹配：输入"杭州"应命中库中"杭州市"（高德原始城市名口径）
+        PoiEntity amapCity = poi(5L, "模糊命中", null, null, "0", null);
+        amapCity.setCity("杭州市");
+        System.out.printf("  输入杭州 / 库值杭州市 : 放行=%s（预期 true，模糊匹配）%n",
+                PoiSearchTool.passesHardFilter(amapCity, input));
+        PoiEntity nullCity = poi(6L, "空城市", null, null, "0", null);
+        nullCity.setCity(null);
+        System.out.printf("  库值 null           : 放行=%s（预期 false）%n",
+                PoiSearchTool.passesHardFilter(nullCity, input));
         assertTrue(PoiSearchTool.passesHardFilter(
                 poi(1L, "免费景点", null, null, "0", null), input), "门票 0=免费应放行");
         assertFalse(PoiSearchTool.passesHardFilter(
                 poi(2L, "贵景点", null, null, "200", null), input), "超预算应拦截");
         assertFalse(PoiSearchTool.passesHardFilter(closed, input), "闭园应拦截");
         assertFalse(PoiSearchTool.passesHardFilter(otherCity, input), "异城应拦截");
+        assertTrue(PoiSearchTool.passesHardFilter(amapCity, input), "杭州应模糊命中杭州市");
+        assertFalse(PoiSearchTool.passesHardFilter(nullCity, input), "库值 null 不命中");
     }
 
     @Test
