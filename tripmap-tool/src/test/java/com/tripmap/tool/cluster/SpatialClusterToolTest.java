@@ -228,32 +228,57 @@ class SpatialClusterToolTest {
     }
 
     @Test
-    @DisplayName("簇平衡校正：6/1 失衡分布移交 2 点达到 4/3")
-    void balanceCorrection() {
+    @DisplayName("平衡校正不强行跨界：西湖6/良渚1 失衡但跨界荒谬 → 保持地理纯度，balanced=false")
+    void balanceCorrectionRejectsAbsurdCrossing() {
         List<PoiCandidate> candidates = new java.util.ArrayList<>();
-        // 西湖密集 6 点（互相 300m~2km）
         candidates.add(poi(1, "断桥残雪", 30.2586, 120.1517));
         candidates.add(poi(2, "平湖秋月", 30.2534, 120.1432));
         candidates.add(poi(3, "曲院风荷", 30.2470, 120.1330));
         candidates.add(poi(4, "苏堤春晓", 30.2385, 120.1340));
         candidates.add(poi(5, "花港观鱼", 30.2330, 120.1400));
         candidates.add(poi(6, "雷峰塔", 30.2312, 120.1489));
-        // 良渚孤立 1 点（距西湖 18km，天然独占一簇）
         candidates.add(poi(11, "良渚古城遗址", 30.3959, 119.9880));
-        printInput("西湖 6 点 + 良渚孤立 1 点，k=2（初始 6/1 失衡，阈值 2）", candidates, 2);
+        printInput("西湖 6 点 + 良渚孤立 1 点，k=2：跨界 20km+ 不成立，宁可不平衡", candidates, 2);
 
         ClusterOutput output = tool.execute(ClusterInput.builder()
                 .candidates(candidates).days(2).seed(42L).build());
         printOutput(output);
 
-        assertTrue(output.isBalanced(), "校正后应达标（簇间差 ≤ 2）");
-        assertEquals(2, output.getMovedPoints(), "6/1 → 4/3 需移动 2 个点");
+        assertEquals(0, output.getMovedPoints(), "跨界荒谬时不得移动任何点");
+        assertTrue(!output.isBalanced(), "接受不平衡并如实标记");
+        assertEquals(Set.of(11L), idsOf(dayOf(output, 11)), "良渚簇应只含良渚点（地理纯度）");
+        assertEquals(6, dayOf(output, 1).getPoints().size(), "西湖 6 点应完整保留");
+    }
+
+    @Test
+    @DisplayName("平衡校正正向用例：簇大且边缘点与邻近小簇相邻（≤15km）时移交")
+    void balanceCorrectionGenuineCrossing() {
+        List<PoiCandidate> candidates = new java.util.ArrayList<>();
+        // 紧凑簇 A：6 点围在 (30.25, 120.14) 周围约 1.5km 内
+        candidates.add(poi(1, "A1", 30.2600, 120.1400));
+        candidates.add(poi(2, "A2", 30.2550, 120.1450));
+        candidates.add(poi(3, "A3", 30.2500, 120.1400));
+        candidates.add(poi(4, "A4", 30.2450, 120.1450));
+        candidates.add(poi(5, "A5", 30.2500, 120.1350));
+        candidates.add(poi(6, "A6", 30.2550, 120.1350));
+        // 邻近小簇 B：2 点在 A 西侧约 4km（相邻区域，非远郊）
+        candidates.add(poi(11, "B1", 30.2650, 120.1000));
+        candidates.add(poi(12, "B2", 30.2600, 120.0950));
+        printInput("紧凑 6 点簇 + 相邻 2 点小簇（约 4km），k=2：6/2 → 5/3 合法移交", candidates, 2);
+
+        ClusterOutput output = tool.execute(ClusterInput.builder()
+                .candidates(candidates).days(2).seed(42L).build());
+        printOutput(output);
+
+        assertTrue(output.isBalanced(), "相邻区域移交后应达标（6/2 → 5/3，差 2）");
+        assertEquals(1, output.getMovedPoints());
         List<Integer> sizes = output.getClusters().stream()
                 .map(d -> d.getPoints().size()).sorted().toList();
-        assertEquals(List.of(3, 4), sizes);
-        // 良渚孤立点仍在自己的小簇（移交进它，不是移走它）
-        DayCluster liangzhuDay = dayOf(output, 11);
-        assertEquals(3, liangzhuDay.getPoints().size());
+        assertEquals(List.of(3, 5), sizes);
+        // B 簇吸收一个 A 点后：B 两点同簇 + 吸收的 A 点
+        DayCluster bDay = dayOf(output, 11);
+        assertTrue(idsOf(bDay).contains(11L) && idsOf(bDay).contains(12L), "B 两点必须同簇");
+        assertEquals(3, bDay.getPoints().size(), "B 簇应吸收一个 A 点后为 3 点");
     }
 
     @Test

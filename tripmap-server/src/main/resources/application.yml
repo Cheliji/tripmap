@@ -61,6 +61,8 @@ tripmap:
     balance-threshold: ${CLUSTER_BALANCE_THRESHOLD:2}
     # 必去点近邻归并距离（米）：距离不超此值的必去点归为一组、安排在同一天
     anchor-merge-distance-meters: ${CLUSTER_ANCHOR_MERGE_DISTANCE_M:1500}
+    # 平衡移交最大距离（米）：超过视为非相邻区域拒绝移交，防止跨区硬凑
+    max-balance-move-meters: ${CLUSTER_MAX_BALANCE_MOVE_M:15000}
 
 spring:
   application:

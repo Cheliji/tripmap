@@ -37,8 +37,12 @@ import java.util.Random;
  *       最近质心（距离相等取簇下标小者，确定性），自由簇质心按成员均值更新，
  *       空簇由"离本簇质心最远的自由点"确定性塞入兜底；</li>
  *   <li><b>簇平衡校正</b>（2.5.4）：簇间大小差 &gt; 阈值（默认 2）时，大簇中
- *       离质心最远的自由点移交最小簇；锚定点永不移动（锚定与平衡冲突时锚定
- *       优先）；无可移动点时终止并标记 balanced=false；</li>
+ *       离质心最远的自由点移交"小簇"——接收方在小簇中取离被移点最近者，
+ *       <b>且移交距离 ≤ maxBalanceMoveMeters（默认 15km）</b>，超距视为非相邻区域拒绝
+ *       （真实数据验证细化，2026-11-19：全局最小簇可能是几十公里外的远郊簇，
+ *       硬凑平衡会把市中心点拽进远郊天，违背"一天一个区域"；地理纯度优先，
+ *       宁可不平衡标记 balanced=false，由上游补候选/替补解决）；锚定点永不移动
+ *       （锚定优先于平衡）；</li>
  *   <li><b>簇→天排序</b>（2.5.5）：从首个锚定簇（无必去点时簇 0）出发按簇质心
  *       贪心最近邻编为 day 1..k，相邻天区域尽量接近、降低换区成本
  *       （设计说明书 §6.3"日序安排"）。</li>
@@ -402,15 +406,25 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
     // ---------- 3. 簇平衡校正（2.5.4） ----------
 
     /**
-     * 簇间大小差 &gt; 阈值时，大簇中离质心最远的自由点移交最小簇；
-     * 锚定点永不移动（锚定优先于平衡）。每轮移动后重算受影响的自由簇质心。
+     * 簇间大小差 &gt; 阈值时，大簇中离质心最远的自由点移交"小簇"；
+     * 锚定点永不移动（锚定优先于平衡）。
+     *
+     * <p><b>移交规则（真实数据验证后细化，2026-11-19）</b>：设计说明书 §6.2 原文是
+     * "移交小簇"，最初实现取全局最小簇——真实数据暴露出缺陷：最小簇可能是几十公里外
+     * 的远郊簇（如淳安），为凑平衡会把市中心点拽进远郊天（"拱墅商场 + 淳安景点同一天"），
+     * 违背"一天一个区域"。细化为：在"小簇"（大小 ≤ 最小簇 + 阈值）中选离被移点最近者，
+     * 且<b>移交距离 ≤ maxBalanceMoveMeters</b>（默认 15km，配置化）——超过即视为
+     * 非相邻区域，拒绝移交。地理纯度优先于簇大小：区域完整性由硬约束保证，簇偏小时
+     * 由上游补候选/替补解决（设计说明书 §6.4），不靠跨区硬凑。</p>
+     *
+     * <p>每轮至多移动 1 个点，移动后重算受影响的自由簇质心；轮数上限 n 保证收敛。</p>
      *
      * @return 实际移动的点数
      */
     private int rebalance(List<PoiCandidate> candidates, double[][] centroids,
                           int[] assign, List<Integer> freePoints, int anchorCount, int k) {
         int moved = 0;
-        // 上限 n 轮：每轮移动 1 个点且总点数有限，必然收敛
+        // 上限 n 轮：每轮至多移动 1 个点且总点数有限，必然收敛
         for (int round = 0; round < candidates.size(); round++) {
             int[] sizes = clusterSizes(assign, k);
             int minC = argMin(sizes);
@@ -418,29 +432,36 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
             if (sizes[maxC] - sizes[minC] <= properties.getBalanceThreshold()) {
                 break;
             }
-            // 找有可移动自由点的最大簇（按簇大小降序、平局下标小者优先）
-            int donor = -1;
-            int[] order = clustersBySizeDesc(sizes);
-            for (int c : order) {
-                if (sizes[c] - sizes[minC] <= properties.getBalanceThreshold()) {
+            boolean movedThisRound = false;
+            // 按簇大小降序尝试大簇：找到一个"相邻区域"移交即执行；全无则终止
+            for (int donor : clustersBySizeDesc(sizes)) {
+                if (sizes[donor] - sizes[minC] <= properties.getBalanceThreshold()) {
                     break;
                 }
-                if (hasMovablePoint(assign, freePoints, c)) {
-                    donor = c;
-                    break;
+                if (!hasMovablePoint(assign, freePoints, donor)) {
+                    continue;
                 }
-            }
-            if (donor < 0) {
-                log.warn("簇平衡校正提前终止：各簇仅剩锚定点，无可移动自由点");
+                int farthest = farthestMovablePoint(candidates, centroids, assign, freePoints, donor);
+                int recipient = nearestSmallCluster(candidates.get(farthest), sizes,
+                        minC, centroids, donor, k);
+                // 移交距离超过阈值 → 非相邻区域，拒绝；尝试下一个大簇
+                if (pointToCentroid(candidates.get(farthest), centroids[recipient])
+                        > properties.getMaxBalanceMoveMeters()) {
+                    continue;
+                }
+                assign[farthest] = recipient;
+                moved++;
+                log.debug("簇平衡：候选 {} 由簇 {}（{} 点）移交簇 {}（{} 点，相距 {}m）",
+                        candidates.get(farthest).getId(), donor, sizes[donor], recipient, sizes[recipient],
+                        Math.round(pointToCentroid(candidates.get(farthest), centroids[recipient])));
+                updateFreeCentroids(candidates, centroids, assign, freePoints, anchorCount, k);
+                movedThisRound = true;
                 break;
             }
-            int farthest = farthestMovablePoint(candidates, centroids, assign, freePoints, donor);
-            assign[farthest] = minC;
-            moved++;
-            log.debug("簇平衡：候选 {} 由簇 {}（{} 点）移交簇 {}（{} 点）",
-                    candidates.get(farthest).getId(), donor, sizes[donor], minC, sizes[minC]);
-            // 重算受影响的自由簇质心（donor/minC 为锚定簇时 update 内部自动跳过）
-            updateFreeCentroids(candidates, centroids, assign, freePoints, anchorCount, k);
+            if (!movedThisRound) {
+                log.warn("簇平衡校正终止：无可移交的相邻小簇，保持地理纯度（接受不平衡，balanced=false）");
+                break;
+            }
         }
         return moved;
     }
@@ -452,6 +473,27 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
             }
         }
         return false;
+    }
+
+    /**
+     * 移交目标："小簇"（大小 ≤ 最小簇 + 阈值，接收后不破坏平衡带）中离被移点
+     * 最近的簇；距离相等取簇下标小者（确定性）。最小簇本身必在候选内，不会空集。
+     */
+    private int nearestSmallCluster(PoiCandidate point, int[] sizes, int minCluster,
+                                    double[][] centroids, int donor, int k) {
+        int recipient = minCluster;
+        double best = pointToCentroid(point, centroids[minCluster]);
+        for (int c = 0; c < k; c++) {
+            if (c == donor || sizes[c] > sizes[minCluster] + properties.getBalanceThreshold()) {
+                continue;
+            }
+            double d = pointToCentroid(point, centroids[c]);
+            if (d < best) {
+                best = d;
+                recipient = c;
+            }
+        }
+        return recipient;
     }
 
     /** 簇内离质心最远的自由点（平局取输入下标小者，确定性） */

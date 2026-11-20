@@ -30,4 +30,11 @@ public class ClusterProperties {
      * 灵隐—西溪（5km+）不成立
      */
     private double anchorMergeDistanceMeters = 1500.0;
+
+    /**
+     * 平衡移交最大距离（米）：簇平衡校正时，大簇最远自由点与接收小簇质心的距离
+     * 不得超过此值，否则视为非相邻区域拒绝移交（真实数据验证细化，2026-11-19：
+     * 防止把市中心点拽进几十公里外的远郊天，违背"一天一个区域"）。
+     */
+    private double maxBalanceMoveMeters = 15000.0;
 }
