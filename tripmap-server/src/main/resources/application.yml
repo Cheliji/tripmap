@@ -51,6 +51,17 @@ tripmap:
     city-codes:
       杭州: "0571"
 
+  # 空间聚类工具配置（任务 2.5，设计说明书 §6.2）
+  cluster:
+    # K-Means 默认随机种子（同输入同输出，可复现）
+    seed: ${CLUSTER_SEED:42}
+    # K-Means 最大迭代轮数
+    max-iterations: ${CLUSTER_MAX_ITERATIONS:100}
+    # 簇平衡阈值：簇间大小差超过此值时，大簇最远点移交小簇
+    balance-threshold: ${CLUSTER_BALANCE_THRESHOLD:2}
+    # 必去点近邻归并距离（米）：距离不超此值的必去点归为一组、安排在同一天
+    anchor-merge-distance-meters: ${CLUSTER_ANCHOR_MERGE_DISTANCE_M:1500}
+
 spring:
   application:
     name: tripmap
