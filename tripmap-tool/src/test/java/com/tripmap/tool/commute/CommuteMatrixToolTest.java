@@ -1,4 +1,4 @@
-﻿package com.tripmap.tool.commute;
+package com.tripmap.tool.commute;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tripmap.common.exception.BizException;
