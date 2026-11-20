@@ -17,9 +17,12 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 空间聚类工具（任务 2.5，设计说明书 §6.2"空间聚类"）：
@@ -80,6 +83,14 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         // 距离矩阵一次性预计算（n≤40，O(n²) 廉价；迭代中只查表）
         double[][] dist = buildDistanceMatrix(candidates);
 
+        // ---------- 0.5 边缘点剥离（2026-11-20，候选中的候选） ----------
+        // K-Means 初始化会被离群点绑架（k-means++ D² 加权把质心推到远郊孤立点，
+        // 导致市中心 20+ 点挤一天）。剥离后密集区正常分簇；必去点永不剥离。
+        OutlierResult outlier = detectOutliers(candidates, dist);
+        List<PoiCandidate> excluded = outlier.excluded();
+        Map<Long, String> excludedReason = outlier.excludedReason();
+        Set<Integer> excludedIdx = outlier.excludedIdx();
+
         // ---------- 1. 必去点近邻归并 → 锚定簇（2.5.3） ----------
         List<List<Integer>> anchorGroups = mergeAnchorGroups(candidates, dist);
         int g = anchorGroups.size();
@@ -106,9 +117,18 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         }
         List<Integer> freePoints = new ArrayList<>();
         for (int i = 0; i < n; i++) {
-            if (assign[i] < 0) {
+            if (assign[i] < 0 && !excludedIdx.contains(i)) {
                 freePoints.add(i);
             }
+        }
+        // 剥离后若参与聚类的点不足 k，则全部作为一个簇返回（交由编排层用 excluded 补齐）
+        if (freePoints.size() + anchorPointCount < k) {
+            log.warn("剥离边缘点后参与聚类的点不足 {} 个（实际 {} 个），全部作为一个簇返回", k,
+                    freePoints.size() + anchorPointCount);
+            ClusterOutput degenerate = buildDegenerateOutput(candidates, anchorGroups, freePoints,
+                    excluded, excludedReason, k, seed);
+            printClusters(degenerate);
+            return degenerate;
         }
 
         // ---------- 2. K-Means（2.5.1/2.5.2） ----------
@@ -127,9 +147,70 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         int[] dayOrder = orderClusters(centroids, k);
 
         ClusterOutput output = buildOutput(candidates, assign, centroids, dayOrder,
-                k, seed, iterations, balanced, movedPoints, g);
+                k, seed, iterations, balanced, movedPoints, g, excluded, excludedReason);
         printClusters(output);
         return output;
+    }
+
+    // ---------- 0.5 边缘点剥离（候选中的候选） ----------
+
+    /**
+     * 识别并剥离边缘点（离群远点）：计算每个自由点到最近 outlierKnn 个邻居的
+     * 平均距离，取所有点该值的分位数（outlierThresholdQuantile）作为动态阈值，
+     * 同时不低于 outlierMinDistanceMeters 绝对下限；超过阈值的自由点剥离。
+     *
+     * <p><b>必去点永不剥离</b>：它是锚不是噪声——哪怕离得再远也必须给一个簇
+     * （哪怕那个簇只有它 1 个点），编排层据此单独安排或拒绝。</p>
+     */
+    private OutlierResult detectOutliers(List<PoiCandidate> candidates, double[][] dist) {
+        int n = candidates.size();
+        int knn = Math.max(1, properties.getOutlierKnn());
+        double[] knnAvg = new double[n];
+        for (int i = 0; i < n; i++) {
+            // 到最近 knn 个邻居的平均距离（排除自身 dist[i][i]=0）
+            double[] d = dist[i].clone();
+            Arrays.sort(d);
+            double sum = 0;
+            for (int j = 1; j <= knn && j < d.length; j++) {
+                sum += d[j];
+            }
+            knnAvg[i] = sum / knn;
+        }
+        double[] sorted = knnAvg.clone();
+        Arrays.sort(sorted);
+        double quantile = properties.getOutlierThresholdQuantile();
+        int qIdx = (int) Math.min(n - 1, Math.ceil(quantile * n) - 1);
+        double threshold = Math.max(sorted[qIdx], properties.getOutlierMinDistanceMeters());
+
+        List<PoiCandidate> excluded = new ArrayList<>();
+        Map<Long, String> excludedReason = new LinkedHashMap<>();
+        Set<Integer> excludedIdx = new LinkedHashSet<>();
+        for (int i = 0; i < n; i++) {
+            if (candidates.get(i).isMustVisit()) {
+                continue; // 必去点永不剥离
+            }
+            if (knnAvg[i] > threshold) {
+                excluded.add(candidates.get(i));
+                excludedIdx.add(i);
+                excludedReason.put(candidates.get(i).getId(),
+                        String.format("距最近 %d 邻居均值 %.1fkm（阈值 %.1fkm）",
+                                knn, knnAvg[i] / 1000, threshold / 1000));
+            }
+        }
+        if (!excluded.isEmpty()) {
+            log.info("边缘点剥离：{} 个候选中有 {} 个离群点被剥离（阈值={}km，分位数={}，绝对下限={}km）：{}",
+                    n, excluded.size(), String.format("%.1f", threshold / 1000),
+                    quantile, properties.getOutlierMinDistanceMeters() / 1000,
+                    excluded.stream().map(p -> p.getName() + "(" + excludedReason.get(p.getId()) + ")")
+                            .collect(Collectors.joining("、")));
+        }
+        return new OutlierResult(excluded, excludedReason, excludedIdx);
+    }
+
+    /** 边缘点剥离结果 */
+    private record OutlierResult(List<PoiCandidate> excluded,
+                                 Map<Long, String> excludedReason,
+                                 Set<Integer> excludedIdx) {
     }
 
     // ---------- 0. 参数校验 ----------
@@ -552,7 +633,9 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
     private ClusterOutput buildOutput(List<PoiCandidate> candidates, int[] assign,
                                       double[][] centroids, int[] dayOrder,
                                       int k, long seed, int iterations, boolean balanced,
-                                      int movedPoints, int anchorGroupCount) {
+                                      int movedPoints, int anchorGroupCount,
+                                      List<PoiCandidate> excluded,
+                                      Map<Long, String> excludedReason) {
         List<DayCluster> clusters = new ArrayList<>(k);
         for (int seq = 0; seq < k; seq++) {
             int c = dayOrder[seq];
@@ -578,6 +661,49 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
                 .balanced(balanced)
                 .movedPoints(movedPoints)
                 .anchorGroupCount(anchorGroupCount)
+                .excluded(excluded)
+                .excludedReason(excludedReason)
+                .build();
+    }
+
+    /**
+     * 退化输出：剥离边缘点后参与聚类的点不足 k 时，全部作为一个簇返回，
+     * 交由编排层用 excluded 替补池补齐（不再做数学校验）。
+     */
+    private ClusterOutput buildDegenerateOutput(List<PoiCandidate> candidates,
+                                                List<List<Integer>> anchorGroups,
+                                                List<Integer> freePoints,
+                                                List<PoiCandidate> excluded,
+                                                Map<Long, String> excludedReason,
+                                                int k, long seed) {
+        List<PoiCandidate> points = new ArrayList<>();
+        for (List<Integer> group : anchorGroups) {
+            for (int idx : group) {
+                points.add(candidates.get(idx));
+            }
+        }
+        for (int idx : freePoints) {
+            points.add(candidates.get(idx));
+        }
+        double[] centroid = points.isEmpty() ? new double[]{0, 0}
+                : meanCoords(candidates, points.stream().map(candidates::indexOf).toList());
+        DayCluster single = DayCluster.builder()
+                .daySeq(1)
+                .points(points)
+                .centroidLat(centroid[0])
+                .centroidLng(centroid[1])
+                .anchored(!anchorGroups.isEmpty())
+                .build();
+        return ClusterOutput.builder()
+                .clusters(List.of(single))
+                .days(k)
+                .seed(seed)
+                .iterations(0)
+                .balanced(false)
+                .movedPoints(0)
+                .anchorGroupCount(anchorGroups.size())
+                .excluded(excluded)
+                .excludedReason(excludedReason)
                 .build();
     }
 
@@ -616,7 +742,9 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
     private int[] clusterSizes(int[] assign, int k) {
         int[] sizes = new int[k];
         for (int a : assign) {
-            sizes[a]++;
+            if (a >= 0) {
+                sizes[a]++;
+            }
         }
         return sizes;
     }
@@ -674,6 +802,12 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
                     day.getPoints().stream()
                             .map(p -> p.getName() + "(id=" + p.getId() + (p.isMustVisit() ? ",必去" : "") + ")")
                             .reduce((a, b) -> a + "、 " + b).orElse("")));
+        }
+        if (output.getExcluded() != null && !output.getExcluded().isEmpty()) {
+            sb.append(String.format("  边缘点（候选中的候选）%d 个：%s%n", output.getExcluded().size(),
+                    output.getExcluded().stream()
+                            .map(p -> p.getName() + "[" + output.getExcludedReason().get(p.getId()) + "]")
+                            .collect(Collectors.joining("、"))));
         }
         log.info(sb.toString());
     }

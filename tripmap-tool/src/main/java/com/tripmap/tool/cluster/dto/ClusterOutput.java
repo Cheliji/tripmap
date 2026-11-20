@@ -1,5 +1,6 @@
 package com.tripmap.tool.cluster.dto;
 
+import com.tripmap.tool.poi.PoiCandidate;
 import com.tripmap.tool.spi.ToolOutput;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -7,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 空间聚类工具输出（任务 2.5）。
@@ -40,4 +42,17 @@ public class ClusterOutput implements ToolOutput {
 
     /** 必去点近邻归并后的锚组数（0 = 无必去点，纯 K-Means） */
     private int anchorGroupCount;
+
+    /**
+     * 被剥离的边缘点（候选中的候选）：离群远点不参与聚类，由编排层/LLM 决策
+     * 作为替补池使用（2026-11-20 真实数据验证引入：K-Means 初始化会被离群点绑架，
+     * 导致市中心 20+ 点挤一天；剥离后密集区正常分簇）。
+     */
+    private List<PoiCandidate> excluded;
+
+    /**
+     * 边缘点剥离原因（id → 人类可读说明，如 "距最近 2 邻居均值 35.2km（阈值 15km）"），
+     * 供编排层/LLM 结合上下文决策（如必去点虽远仍需单独安排）。
+     */
+    private Map<Long, String> excludedReason;
 }

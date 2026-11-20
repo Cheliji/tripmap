@@ -63,6 +63,12 @@ tripmap:
     anchor-merge-distance-meters: ${CLUSTER_ANCHOR_MERGE_DISTANCE_M:1500}
     # 平衡移交最大距离（米）：超过视为非相邻区域拒绝移交，防止跨区硬凑
     max-balance-move-meters: ${CLUSTER_MAX_BALANCE_MOVE_M:15000}
+    # 边缘点剥离（候选中的候选）：k-NN 邻居数
+    outlier-knn: ${CLUSTER_OUTLIER_KNN:2}
+    # 边缘点剥离：k-NN 距离阈值分位数
+    outlier-threshold-quantile: ${CLUSTER_OUTLIER_QUANTILE:0.90}
+    # 边缘点剥离：绝对下限（米），防止分位数阈值飘低误剥市区点
+    outlier-min-distance-meters: ${CLUSTER_OUTLIER_MIN_DIST_M:15000}
 
 spring:
   application:
