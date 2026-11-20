@@ -77,6 +77,7 @@ public class CommuteMatrixTool implements TripTool<CommuteMatrixInput, CommuteMa
         this.routeClient = routeClient;
         this.redisTemplate = redisTemplate;
         this.properties = properties;
+        // TODO 线程池创建有问题
         this.executor = Executors.newFixedThreadPool(properties.getMaxConcurrency(),
                 namedDaemonFactory("commute-matrix-"));
     }
