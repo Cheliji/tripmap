@@ -34,6 +34,21 @@ tripmap:
     # Redis 缓存 TTL（TASKS 2.3.4：30～60 分钟）
     cache-ttl-minutes: ${QWEATHER_CACHE_TTL_MINUTES:30}
 
+  # DeepSeek 客户端配置（任务 2.7，联网搜索 + LLM 结构化整理共用，tripmap-poi功能设计说明书 §4.8）
+  # api-key 为凭证，见 application-{env}.yml；此处只放与环境无关的调优项
+  deepseek:
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    # 超时与重试（指数退避）：连接 3s；搜索读取 10s、LLM 读取 60s（结构化整理单次上限）
+    connect-timeout-ms: ${DEEPSEEK_CONNECT_TIMEOUT_MS:3000}
+    search-read-timeout-ms: ${DEEPSEEK_SEARCH_READ_TIMEOUT_MS:10000}
+    chat-read-timeout-ms: ${DEEPSEEK_CHAT_READ_TIMEOUT_MS:60000}
+    max-retries: ${DEEPSEEK_MAX_RETRIES:2}
+    retry-base-delay-ms: ${DEEPSEEK_RETRY_BASE_DELAY_MS:500}
+    # 联网搜索最小调用间隔（毫秒，§4.8 建议 ≥1 次/秒，保护配额）
+    search-min-interval-ms: ${DEEPSEEK_SEARCH_MIN_INTERVAL_MS:1000}
+    # 联网搜索单次返回条数（官方上限 50，§4.8 取 10）
+    search-count: ${DEEPSEEK_SEARCH_COUNT:10}
+
   # 通勤矩阵工具配置（任务 2.4，amap-route-api.md §2/§3/§7）
   commute:
     # Redis 缓存 TTL（设计说明书 §8.3）：7 天
