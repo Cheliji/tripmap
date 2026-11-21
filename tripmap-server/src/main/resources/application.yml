@@ -70,6 +70,19 @@ tripmap:
     # 边缘点剥离：绝对下限（米），防止分位数阈值飘低误剥市区点
     outlier-min-distance-meters: ${CLUSTER_OUTLIER_MIN_DIST_M:15000}
 
+  # 日内路径求解工具配置（任务 2.6，设计说明书 §6.3 双开放最短路径 + 时间窗 + 午餐禁游）
+  # input 显式传值时优先于本默认值（startTime / lunchStart / lunchEnd / defaultVisitMinutes）
+  route-solve:
+    # 当日出发时刻（首个景点到达锚点）
+    default-start-time: ${ROUTE_SOLVE_DEFAULT_START_TIME:09:00}
+    # 午餐禁游窗口：游玩区间不得与 [start, end) 相交；首末相等=禁用
+    default-lunch-start: ${ROUTE_SOLVE_DEFAULT_LUNCH_START:11:30}
+    default-lunch-end: ${ROUTE_SOLVE_DEFAULT_LUNCH_END:14:00}
+    # suggest_duration 缺失时的默认游玩时长（分钟）
+    default-visit-minutes: ${ROUTE_SOLVE_DEFAULT_VISIT_MINUTES:90}
+    # 单日点数枚举护栏（聚类硬约束本就 ≤7，此值兜底防阶乘爆炸）
+    max-points: ${ROUTE_SOLVE_MAX_POINTS:10}
+
 spring:
   application:
     name: tripmap
