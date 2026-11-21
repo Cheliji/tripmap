@@ -36,6 +36,9 @@
         <easyexcel.version>3.3.4</easyexcel.version>
         <!-- ORM：MyBatis-Plus（任务 1.2.4 定案，见《tripmap数据库设计说明书》§5），Boot 3 专用 starter -->
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <!-- 空间聚类约束求解（任务 2.5.7，设计说明书 v1.4 §6.2）：OR-Tools CP-SAT，仅聚类使用；
+             TSP 路径排序维持纯 Java 精确枚举（v1.1/v1.4 决策） -->
+        <ortools.version>9.14.6206</ortools.version>
     </properties>
 
     <dependencyManagement>
@@ -67,6 +70,12 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
+            </dependency>
+            <!-- OR-Tools 版本统一托管（自带各平台原生库，无需系统安装） -->
+            <dependency>
+                <groupId>com.google.ortools</groupId>
+                <artifactId>ortools-java</artifactId>
+                <version>${ortools.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
