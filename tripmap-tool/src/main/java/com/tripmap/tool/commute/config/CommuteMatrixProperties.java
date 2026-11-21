@@ -1,11 +1,15 @@
 package com.tripmap.tool.commute.config;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 通勤矩阵工具配置（任务 2.4）。
@@ -40,8 +44,20 @@ public class CommuteMatrixProperties {
     /** Redis 缓存键前缀（完整 key = prefix + mode + ":小id:大id"，id 排序规范化） */
     private String cacheKeyPrefix = "tripmap:commute:";
 
-    /** 城市 → 高德 citycode（公交 city1 只认 citycode，amap-route-api.md §3.1） */
-    private Map<String, String> cityCodes = new HashMap<>(Map.of("杭州", "0571"));
+    /**
+     * 城市 → 高德 citycode 映射（列表式）。
+     *
+     * <p>2026-11 由 {@code Map<String,String>} 改为 {@code List<CityCode>}：
+     * Spring Boot 的 {@code ConfigurationPropertyName} 无法绑定 YAML 中
+     * 非 ASCII 的 Map 键（中文"杭州"键被当成标量，整张 Map 绑定失败、
+     * ApplicationContext 起不来）；改列表后中文只出现在 value，绑定正常，
+     * M5 扩城市仍零代码只加条目。</p>
+     */
+    private List<CityCode> cityCodes = defaultCityCodes();
+
+    private static List<CityCode> defaultCityCodes() {
+        return new ArrayList<>(List.of(CityCode.builder().city("杭州").code("0571").build()));
+    }
 
     /**
      * 按 POI 的城市名解析高德 citycode：兼容库中"杭州市"与输入"杭州"两种口径。
@@ -53,6 +69,29 @@ public class CommuteMatrixProperties {
             return null;
         }
         String normalized = city.endsWith("市") ? city.substring(0, city.length() - 1) : city;
-        return cityCodes.get(normalized);
+        for (CityCode entry : cityCodes) {
+            if (entry == null || entry.getCity() == null) {
+                continue;
+            }
+            String key = entry.getCity().endsWith("市")
+                    ? entry.getCity().substring(0, entry.getCity().length() - 1) : entry.getCity();
+            if (normalized.equals(key)) {
+                return entry.getCode();
+            }
+        }
+        return null;
+    }
+
+    /** 城市→高德 citycode 配置条目 */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CityCode {
+        /** 城市名（如"杭州"，兼容"杭州市"） */
+        private String city;
+
+        /** 高德 citycode（如"0571"） */
+        private String code;
     }
 }

@@ -3,6 +3,7 @@ package com.tripmap.tool.weather.config;
 import com.tripmap.tool.weather.client.QWeatherClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +27,7 @@ public class QWeatherClientConfig {
     }
 
     @Bean
-    public QWeatherClient qweatherClient(RestClient qweatherRestClient, QWeatherProperties properties) {
+    public QWeatherClient qweatherClient(@Qualifier("qweatherRestClient") RestClient qweatherRestClient, QWeatherProperties properties) {
         log.info("和风客户端装配：apiHost={}, qpm={}, 超时 {}ms/{}ms, 重试 {} 次(基准 {}ms), "
                         + "预报窗口 {} 天, 降级阈值 {} 天",
                 properties.getApiHost(), properties.getQpm(),

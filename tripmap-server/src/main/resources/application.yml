@@ -47,9 +47,10 @@ tripmap:
     missing-ratio-threshold: ${COMMUTE_MISSING_RATIO_THRESHOLD:0.2}
     # 簇内两两查询并行度（总闸仍是高德 QPS 令牌桶）
     max-concurrency: ${COMMUTE_MAX_CONCURRENCY:8}
-    # 城市 → 高德 citycode（公交 city1 只认 citycode，amap-route-api.md §3.1）
+    # 城市 → 高德 citycode（公交 city1 只认 citycode，amap-route-api.md §3.1；列表式，中文只出现在 value）
     city-codes:
-      杭州: "0571"
+      - city: 杭州
+        code: "0571"
 
   # 空间聚类工具配置（任务 2.5，设计说明书 §6.2，CP-SAT 约束划分，v1.4 重做）
   cluster:

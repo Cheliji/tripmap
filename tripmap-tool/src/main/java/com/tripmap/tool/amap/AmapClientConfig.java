@@ -2,6 +2,7 @@ package com.tripmap.tool.amap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,7 +26,7 @@ public class AmapClientConfig {
     }
 
     @Bean
-    public AmapClient amapClient(RestClient amapRestClient, AmapProperties properties) {
+    public AmapClient amapClient(@Qualifier("amapRestClient") RestClient amapRestClient, AmapProperties properties) {
         log.info("高德客户端装配：baseUrl={}, qps={}, 超时 {}ms/{}ms, 重试 {} 次(基准 {}ms)",
                 properties.getBaseUrl(), properties.getQps(),
                 properties.getConnectTimeoutMs(), properties.getReadTimeoutMs(),
