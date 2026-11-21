@@ -11,7 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -24,14 +23,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 空间聚类真实数据验证（任务 2.5 补充，2026-11-19）：
+ * 空间聚类真实数据验证（任务 2.5.11，v1.4 CP-SAT 约束划分重写）：
  * 从库里 3051 条杭州 POI 中按 id 分桶随机抽样 30 条（id 20~3070 等分 30 桶、
  * 每桶一条，保证 id 不邻近），快照成本测试常量（运行时不依赖数据库）。
  *
  * <p>样本覆盖：西湖/拱墅（市中心）、余杭/临安（西北）、萧山/钱塘（东南）、
  * 富阳（西南）、淳安/建德/桐庐（远郊 60km+）——天然的地理多簇分布，
- * 同时覆盖我们讨论过的全部场景：纯 K-Means / 远距离锚定 / 近邻必去归并 /
- * 锚组超天数 / 平衡校正 / 簇→天排序 / k=1 退化 / 候选不足。</p>
+ * 覆盖我们讨论过的全部场景：纯约束划分 / 每日 1~7 硬约束 / 远距离锚定 /
+ * 近邻必去归并 / 锚组超天数 / 单点远郊日 / 簇→天排序 / k=1 退化 / 候选不足。</p>
  *
  * <p>按 AGENTS.md 定规：打印输入分布与逐日聚类结果（含行政区），
  * console 可直接人工核对的地理合理性。</p>
@@ -88,9 +87,6 @@ class SpatialClusterRealDataTest {
                     .build())
             .toList();
 
-    private static final Map<Long, PoiCandidate> BY_ID =
-            REAL_POIS.stream().collect(Collectors.toMap(PoiCandidate::getId, Function.identity()));
-
     /** 把指定 id 的候选重建为必去点（其余原样拷贝） */
     private List<PoiCandidate> withMustVisits(Set<Long> mustIds) {
         return REAL_POIS.stream()
@@ -108,7 +104,10 @@ class SpatialClusterRealDataTest {
         System.out.println("""
                 
                 ========== 真实数据场景：%s ==========""".formatted(scenario));
-        System.out.printf("  k=%d，必去 id=%s%n", days, mustIds.isEmpty() ? "（无）" : mustIds);
+        System.out.printf("  k=%d，每日点数 [%d,%d]，簇直径 ≤ %.0fkm，必去 id=%s%n",
+                days, properties.getMinPoisPerDay(), properties.getMaxPoisPerDay(),
+                properties.getMaxClusterDiameterMeters() / 1000,
+                mustIds.isEmpty() ? "（无）" : mustIds);
         System.out.printf("  %-6s %-14s %-6s %-12s %-12s%n", "id", "名称", "区县", "经度", "纬度");
         for (PoiCandidate c : REAL_POIS) {
             System.out.printf("  %-6d %-14s %-6s %-12s %-12s%s%n", c.getId(), c.getName(),
@@ -118,9 +117,7 @@ class SpatialClusterRealDataTest {
     }
 
     private void printOutput(ClusterOutput output) {
-        System.out.printf("  ---- 聚类结果（种子=%d，迭代 %d 轮，锚组 %d，平衡移动 %d 点，达标=%s）----%n",
-                output.getSeed(), output.getIterations(), output.getAnchorGroupCount(),
-                output.getMovedPoints(), output.isBalanced() ? "是" : "否");
+        System.out.printf("  ---- 聚类结果（锚组 %d）----%n", output.getAnchorGroupCount());
         for (DayCluster day : output.getClusters()) {
             System.out.printf("  第 %d 天%s 质心(%.4f, %.4f) %2d 点：%s%n",
                     day.getDaySeq(), day.isAnchored() ? "[锚]" : "[自]",
@@ -131,17 +128,24 @@ class SpatialClusterRealDataTest {
         }
     }
 
-    /** 不变量校验：30 个候选每个恰好出现一次（簇内 + excluded 边缘点，分区完整性） */
+    /** 不变量校验：30 个候选每个恰好分配一次（分区完整性） */
     private void assertPartition(ClusterOutput output) {
         List<Long> clustered = output.getClusters().stream()
                 .flatMap(d -> d.getPoints().stream()).map(PoiCandidate::getId).toList();
-        List<Long> excluded = output.getExcluded() == null ? List.of()
-                : output.getExcluded().stream().map(PoiCandidate::getId).toList();
-        List<Long> all = new java.util.ArrayList<>(clustered);
-        all.addAll(excluded);
-        assertEquals(REAL_POIS.size(), all.size(),
-                "每个候选应恰好分配一次（簇内 " + clustered.size() + " + 边缘 " + excluded.size() + "）");
-        assertEquals(REAL_POIS.size(), new HashSet<>(all).size(), "不允许重复分配");
+        assertEquals(REAL_POIS.size(), clustered.size(), "每个候选应恰好分配一次");
+        assertEquals(REAL_POIS.size(), new HashSet<>(clustered).size(), "不允许重复分配");
+    }
+
+    /** 不变量校验：每天点数都在 [min,max] 硬约束内（v1.4 核心：杜绝单日十余点） */
+    private void assertSizeWithinBounds(ClusterOutput output) {
+        for (DayCluster day : output.getClusters()) {
+            int size = day.getPoints().size();
+            assertTrue(size >= properties.getMinPoisPerDay()
+                            && size <= properties.getMaxPoisPerDay(),
+                    String.format("第 %d 天 %d 点，超出硬约束 [%d,%d]",
+                            day.getDaySeq(), size,
+                            properties.getMinPoisPerDay(), properties.getMaxPoisPerDay()));
+        }
     }
 
     private DayCluster dayOf(ClusterOutput output, long poiId) {
@@ -153,40 +157,54 @@ class SpatialClusterRealDataTest {
     // ---------- 用例 ----------
 
     @Test
-    @DisplayName("纯 K-Means k=4：真实 30 点应聚成市中心/西北/东南/远郊四片")
-    void realDataPureKMeans() {
-        printInput("无必去点，k=4（西湖拱墅市中心 / 余杭临安西北 / 萧山钱塘东南 / 富阳远郊）", 4, Set.of());
+    @DisplayName("纯约束划分 k=5：真实 30 点，每日 1~7 硬约束 + 分区完整性")
+    void realDataPurePartition() {
+        // 候选含 5 个远郊孤点（淳安/临安/余杭西北/富阳/桐庐），k=4 在 20km 阈值下
+        // 不可行（探查验证），故用 k=5
+        printInput("无必去点，k=5", 5, Set.of());
         ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(REAL_POIS).days(4).seed(42L).build());
+                .candidates(REAL_POIS).days(5).build());
         printOutput(output);
 
         assertEquals(0, output.getAnchorGroupCount());
         assertPartition(output);
-        // 地理合理性抽查：淳安远郊点（离市中心约 143km）必须被剥离为边缘点，不进任何簇
-        boolean chunAnExcluded = output.getExcluded() != null
-                && output.getExcluded().stream().anyMatch(p -> p.getId() == 576L);
-        assertTrue(chunAnExcluded, "淳安远郊点(143km)应被剥离为边缘点，实际 excluded="
-                + (output.getExcluded() == null ? "[]" : output.getExcluded().stream()
-                        .map(PoiCandidate::getName).toList()));
-        // 市中心雷峰塔必须在某个簇内（不被剥离）
-        DayCluster downtown = dayOf(output, 982);
-        assertTrue(downtown.getPoints().size() >= 1);
+        assertSizeWithinBounds(output);
+        // 市中心雷峰塔在簇内（不被剥离，新模型无边缘点概念）
+        assertTrue(dayOf(output, 982).getPoints().size() >= 1);
     }
 
     @Test
-    @DisplayName("纯 K-Means k=5 两次运行完全一致（真实数据种子可复现）")
-    void realDataReproducible() {
-        ClusterInput input = ClusterInput.builder().candidates(REAL_POIS).days(5).seed(2026L).build();
+    @DisplayName("每日 1~7 硬约束：k=5 时每天点数全部落在 [1,7]，无单日十余点")
+    void realDataSizeHardConstraint() {
+        printInput("无必去点，k=5（验证 K-Means 遗留的'市中心十几点一天'已被硬约束根治）", 5, Set.of());
+        ClusterOutput output = tool.execute(ClusterInput.builder()
+                .candidates(REAL_POIS).days(5).build());
+        printOutput(output);
+        assertPartition(output);
+        assertSizeWithinBounds(output);
+        // 显式打印分布供人读核对
+        List<Integer> sizes = output.getClusters().stream()
+                .map(d -> d.getPoints().size()).sorted().toList();
+        System.out.printf("  簇大小分布（升序）: %s（最大=%d，硬上界=%d）%n",
+                sizes, sizes.get(sizes.size() - 1), properties.getMaxPoisPerDay());
+        assertTrue(sizes.get(sizes.size() - 1) <= properties.getMaxPoisPerDay(),
+                "最大簇不得超过每日上界 7（K-Means 曾出现单日十余点）");
+    }
+
+    @Test
+    @DisplayName("确定性：k=5 两次运行完全一致（固定参数 + 单 worker，无需种子）")
+    void realDataDeterministic() {
+        ClusterInput input = ClusterInput.builder().candidates(REAL_POIS).days(5).build();
         ClusterOutput a = tool.execute(input);
         ClusterOutput b = tool.execute(input);
-        System.out.printf("%n  真实数据 k=5 两次运行对比（种子 2026）：%n");
+        System.out.printf("%n  真实数据 k=5 两次运行对比：%n");
         for (int i = 0; i < a.getClusters().size(); i++) {
             Set<Long> sa = a.getClusters().get(i).getPoints().stream().map(PoiCandidate::getId)
                     .collect(Collectors.toSet());
             Set<Long> sb = b.getClusters().get(i).getPoints().stream().map(PoiCandidate::getId)
                     .collect(Collectors.toSet());
             System.out.printf("  第 %d 天: %s %s%n", i + 1, sa, sa.equals(sb) ? "= 第二次 ✓" : "≠ 第二次 ✗");
-            assertEquals(sa, sb);
+            assertEquals(sa, sb, "同输入必须同输出（确定性）");
         }
         assertPartition(a);
     }
@@ -197,36 +215,57 @@ class SpatialClusterRealDataTest {
         Set<Long> must = Set.of(982L, 576L);
         printInput("必去=雷峰塔(市中心) + 淳安东山尖(远郊约143km)，k=5", 5, must);
         ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(withMustVisits(must)).days(5).seed(42L).build());
+                .candidates(withMustVisits(must)).days(5).build());
         printOutput(output);
 
         assertEquals(2, output.getAnchorGroupCount());
         assertPartition(output);
+        assertSizeWithinBounds(output);
         DayCluster downtown = dayOf(output, 982);
         DayCluster far = dayOf(output, 576);
         assertTrue(downtown.isAnchored() && far.isAnchored(), "两个必去点各自锚定一天");
         assertTrue(downtown.getDaySeq() != far.getDaySeq(), "两个远距离必去点不能同一天");
-        // 单点锚组质心 = 必去点自身坐标
-        assertEquals(30.231612, downtown.getCentroidLat(), 1e-6);
-        assertEquals(120.149715, downtown.getCentroidLng(), 1e-6);
+        // 淳安锚定簇不得混入市中心点（市中心非孤点受直径约束）；远郊孤点可就近并入
+        assertTrue(far.getPoints().stream()
+                        .noneMatch(p -> p.getId() == 982L || p.getId() == 2797L),
+                "淳安锚定簇不得混入市中心点（直径约束）");
     }
 
     @Test
     @DisplayName("近邻必去点归并：大桥村(782) 与 观音庙(110) 相距约 1.3km，同组同一天")
     void realDataNearbyMustVisitMerged() {
         Set<Long> must = Set.of(782L, 110L);
-        printInput("必去=大桥村文化广场 + 观音庙（相距约 1.3km，萧山南部），k=4", 4, must);
+        printInput("必去=大桥村文化广场 + 观音庙（相距约 1.3km，萧山南部），k=5", 5, must);
         ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(withMustVisits(must)).days(4).seed(42L).build());
+                .candidates(withMustVisits(must)).days(5).build());
         printOutput(output);
 
         assertEquals(1, output.getAnchorGroupCount(), "两个相邻必去点应归并为 1 个锚组");
         assertPartition(output);
-        DayCluster gushan = dayOf(output, 782);
-        assertEquals(gushan.getDaySeq(), dayOf(output, 110).getDaySeq(), "两个相邻必去点必须同一天");
-        assertTrue(gushan.isAnchored());
-        // 组质心 = 两点均值
-        assertEquals((29.971484 + 29.977599) / 2, gushan.getCentroidLat(), 1e-6);
+        assertSizeWithinBounds(output);
+        DayCluster merged = dayOf(output, 782);
+        assertEquals(merged.getDaySeq(), dayOf(output, 110).getDaySeq(), "两个相邻必去点必须同一天");
+        assertTrue(merged.isAnchored());
+    }
+
+    @Test
+    @DisplayName("孤点豁免：远郊淳安点并入最近簇（不强制独占一天），不与其他远郊孤点同天")
+    void realDataOutlierExemption() {
+        printInput("无必去点，k=8（验证孤点豁免：远郊孤点不强制独占一天，就近并入）", 8, Set.of());
+        ClusterOutput output = tool.execute(ClusterInput.builder()
+                .candidates(REAL_POIS).days(8).build());
+        printOutput(output);
+        assertPartition(output);
+        assertSizeWithinBounds(output);
+        // 淳安远郊点(143km)：孤点豁免下并入最近簇（可能与另一远郊孤点同天，
+        // 因为二者互为最近邻），但不得与市中心点同天（市中心非孤点受直径约束）
+        DayCluster chunAn = dayOf(output, 576);
+        assertTrue(chunAn.getPoints().stream()
+                        .noneMatch(p -> p.getId() == 982L || p.getId() == 2797L),
+                "淳安东山尖不得与市中心点同天（市中心受直径约束）");
+        List<Integer> sizes = output.getClusters().stream()
+                .map(d -> d.getPoints().size()).sorted().toList();
+        System.out.printf("  簇大小分布（升序）: %s（最大=%d）%n", sizes, sizes.get(sizes.size() - 1));
     }
 
     @Test
@@ -236,38 +275,9 @@ class SpatialClusterRealDataTest {
         Set<Long> must = Set.of(982L, 576L, 2982L, 1606L);
         printInput("必去=雷峰塔/淳安/义蓬/临安（互不相邻），但行程只有 3 天", 3, must);
         BizException e = assertThrows(BizException.class, () -> tool.execute(
-                ClusterInput.builder().candidates(withMustVisits(must)).days(3).seed(42L).build()));
+                ClusterInput.builder().candidates(withMustVisits(must)).days(3).build()));
         System.out.printf("  抛出异常: code=%d, message=%s%n", e.getCode(), e.getMessage());
         assertEquals(ResultCode.PLAN_INFEASIBLE.getCode(), e.getCode());
-    }
-
-    @Test
-    @DisplayName("平衡校正：k=8 时远郊三点仍独占小簇，校正后大小差 ≤ 2 或明确标记未达标")
-    void realDataBalanceCorrection() {
-        printInput("k=8（30 点分 8 天，远郊三点天然小簇，考验平衡校正）", 8, Set.of());
-        ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(REAL_POIS).days(8).seed(42L).build());
-        printOutput(output);
-
-        assertPartition(output);
-        // 真实数据回归：淳安远郊点(143km)必须被剥离，市中心雷峰塔不得与其同簇
-        boolean chunAnExcluded = output.getExcluded() != null
-                && output.getExcluded().stream().anyMatch(p -> p.getId() == 576L);
-        assertTrue(chunAnExcluded, "淳安东山尖(143km)应被剥离为边缘点");
-        assertTrue(output.getClusters().stream()
-                        .noneMatch(d -> d.getPoints().stream().anyMatch(p -> p.getId() == 576L)),
-                "淳安东山尖不得出现在任何簇内");
-        List<Integer> sizes = output.getClusters().stream()
-                .map(d -> d.getPoints().size()).sorted().toList();
-        System.out.printf("  簇大小分布（升序）: %s（balanced=%s，移动 %d 点）%n",
-                sizes, output.isBalanced(), output.getMovedPoints());
-        if (output.isBalanced()) {
-            assertTrue(sizes.get(sizes.size() - 1) - sizes.get(0) <= properties.getBalanceThreshold(),
-                    "标记达标时大小差必须 ≤ 阈值");
-        } else {
-            // 未达标是合法结果：地理纯度优先，簇偏小由上游补候选/替补解决（§6.4）
-            System.out.println("  注：balanced=false 为合法结果——无可真实跨界的移动，保持地理纯度");
-        }
     }
 
     @Test
@@ -275,12 +285,12 @@ class SpatialClusterRealDataTest {
     void realDataDayOrderingGreedyChain() {
         printInput("k=5 排序校验：每个后续天必须是当时质心最近者", 5, Set.of());
         ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(REAL_POIS).days(5).seed(42L).build());
+                .candidates(REAL_POIS).days(5).build());
         printOutput(output);
         assertPartition(output);
 
         // 贪心链性质：day(i+1) 的质心是所有未排簇中离 day(i) 最近的
-        List<DayCluster> days = new ArrayList<>(output.getClusters());
+        List<DayCluster> days = output.getClusters();
         for (int i = 1; i < days.size(); i++) {
             DayCluster prev = days.get(i - 1);
             double actual = centroidDist(prev, days.get(i));
@@ -296,25 +306,21 @@ class SpatialClusterRealDataTest {
     }
 
     @Test
-    @DisplayName("k=1 退化：全部 30 点一天，边缘点照常剥离")
-    void realDataSingleDay() {
-        ClusterOutput output = tool.execute(ClusterInput.builder()
-                .candidates(REAL_POIS).days(1).seed(42L).build());
-        int clustered = output.getClusters().get(0).getPoints().size();
-        int excluded = output.getExcluded() == null ? 0 : output.getExcluded().size();
-        System.out.printf("%n  k=1：簇数=%d，簇内点数=%d，边缘点=%d，平衡=%s%n",
-                output.getClusters().size(), clustered, excluded, output.isBalanced());
-        assertEquals(1, output.getClusters().size());
-        assertEquals(1, output.getClusters().get(0).getDaySeq());
-        // 分区完整性：簇内 + 边缘 = 全部 30 点
-        assertEquals(REAL_POIS.size(), clustered + excluded);
+    @DisplayName("k=1 退化：全部 30 点分 1 天受每日上限约束 → 不可行（300002）")
+    void realDataSingleDayInfeasible() {
+        // 每日上限 7，30 点无法塞进 1 天 → CP-SAT 无解
+        BizException e = assertThrows(BizException.class, () -> tool.execute(
+                ClusterInput.builder().candidates(REAL_POIS).days(1).build()));
+        System.out.printf("%n  k=1：30 点无法塞进每日上限 %d → code=%d, message=%s%n",
+                properties.getMaxPoisPerDay(), e.getCode(), e.getMessage());
+        assertEquals(ResultCode.PLAN_INFEASIBLE.getCode(), e.getCode());
     }
 
     @Test
     @DisplayName("候选少于天数：30 点 + k=31 → 规划不可行（300002）")
     void realDataCandidatesFewerThanDays() {
         BizException e = assertThrows(BizException.class, () -> tool.execute(
-                ClusterInput.builder().candidates(REAL_POIS).days(31).seed(42L).build()));
+                ClusterInput.builder().candidates(REAL_POIS).days(31).build()));
         System.out.printf("%n  30 点 + k=31 → code=%d, message=%s%n", e.getCode(), e.getMessage());
         assertEquals(ResultCode.PLAN_INFEASIBLE.getCode(), e.getCode());
     }

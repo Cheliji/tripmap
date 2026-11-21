@@ -1,11 +1,18 @@
 package com.tripmap.tool.cluster;
 
+import com.google.ortools.Loader;
+import com.google.ortools.sat.CpModel;
+import com.google.ortools.sat.CpSolver;
+import com.google.ortools.sat.CpSolverStatus;
+import com.google.ortools.sat.IntVar;
+import com.google.ortools.sat.LinearExpr;
 import com.tripmap.common.exception.BizException;
 import com.tripmap.common.result.ResultCode;
 import com.tripmap.tool.cluster.config.ClusterProperties;
 import com.tripmap.tool.cluster.dto.ClusterInput;
 import com.tripmap.tool.cluster.dto.ClusterOutput;
 import com.tripmap.tool.cluster.dto.DayCluster;
+import com.tripmap.tool.cluster.dto.ForbiddenPair;
 import com.tripmap.tool.poi.PoiCandidate;
 import com.tripmap.tool.spi.ToolNames;
 import com.tripmap.tool.spi.TripTool;
@@ -15,51 +22,54 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * 空间聚类工具（任务 2.5，设计说明书 §6.2"空间聚类"）：
- * 把精选后的候选 POI 按地理位置分成 k（=行程天数）个簇，实现"一天一个区域"。
+ * 空间聚类工具（任务 2.5，设计说明书 v1.4 §6.2，由 K-Means 重做为 OR-Tools CP-SAT 约束划分）。
  *
- * <p><b>流程（四段管道，每段对应 TASKS 子任务）</b>：</p>
+ * <p><b>重做背景（2026-11-21）</b>：K-Means 目标函数只最小化簇内平方距离，对
+ * "每日景点数"零表达能力，市中心高密度点会被聚成单日十余点（真实数据验证暴露）。
+ * 改为 CP-SAT 约束划分——"一天一个区域"由硬约束建模保证，不再依赖聚类形态碰运气。</p>
+ *
+ * <p><b>模型（设计说明书 §6.2）</b>：</p>
  * <ol>
- *   <li><b>必去点近邻归并 + 锚定</b>（2.5.3）：必去点两两 haversine 距离 ≤
- *       归并阈值的用并查集归为一组（传递闭包），每组占一天、组内成员强制同簇，
- *       该簇质心 = 组成员均值坐标且迭代中固定不动——该天围绕必去区域展开。
- *       不做"按用户意愿集中"（跨区强排同一天违背"一天一个区域"原则，
- *       2026-11 与用户确认后取消该分支）；</li>
- *   <li><b>K-Means</b>（2.5.1/2.5.2）：haversine 球面距离；剩余 k-g 个自由簇
- *       以固定种子做 k-means++ 初始质心抽样，保证同输入同输出；自由点分配到
- *       最近质心（距离相等取簇下标小者，确定性），自由簇质心按成员均值更新，
- *       空簇由"离本簇质心最远的自由点"确定性塞入兜底；</li>
- *   <li><b>簇平衡校正</b>（2.5.4）：簇间大小差 &gt; 阈值（默认 2）时，大簇中
- *       离质心最远的自由点移交"小簇"——接收方在小簇中取离被移点最近者，
- *       <b>且移交距离 ≤ maxBalanceMoveMeters（默认 15km）</b>，超距视为非相邻区域拒绝
- *       （真实数据验证细化，2026-11-19：全局最小簇可能是几十公里外的远郊簇，
- *       硬凑平衡会把市中心点拽进远郊天，违背"一天一个区域"；地理纯度优先，
- *       宁可不平衡标记 balanced=false，由上游补候选/替补解决）；锚定点永不移动
- *       （锚定优先于平衡）；</li>
- *   <li><b>簇→天排序</b>（2.5.5）：从首个锚定簇（无必去点时簇 0）出发按簇质心
- *       贪心最近邻编为 day 1..k，相邻天区域尽量接近、降低换区成本
- *       （设计说明书 §6.3"日序安排"）。</li>
+ *   <li><b>变量</b>：x[i][d] ∈ {0,1}，候选 i 排第 d 天；</li>
+ *   <li><b>每候选恰一天</b>：Σ_d x[i][d] = 1；</li>
+ *   <li><b>每日点数硬约束</b>：minPoisPerDay ≤ Σ_i x[i][d] ≤ maxPoisPerDay
+ *       （默认 1~7，配置化）；</li>
+ *   <li><b>簇直径硬约束（地理距离）</b>：同一天任意两点 haversine 距离 ≤
+ *       maxClusterDiameterMeters（配置化）；超径点对以 x[i][d]+x[j][d] ≤ 1 线性化。
+ *       <b>孤点豁免</b>：最近邻 > 阈值的远郊孤点不受此约束（允许并入最近簇，
+ *       避免孤点强制独占一天导致孤点数 > k 时无解）；</li>
+ *   <li><b>禁配表回切</b>：{@link ClusterInput#getForbiddenPairs()}（通勤矩阵/硬校验 #4
+ *       发现的"同天但通勤超时"点对）同法线性化，实现"通勤时间禁配回切环"的模型侧；</li>
+ *   <li><b>必去点锚定</b>：必去点近邻归并（并查集传递闭包）后每组占一天、
+ *       组内成员强制同天，建模为变量固定值；</li>
+ *   <li><b>目标</b>：最小化全部簇内 pairwise 距离和（凝聚度），为解的质量标准；</li>
+ *   <li><b>确定性</b>：固定参数 + numSearchWorkers=1，同输入同输出。</li>
  * </ol>
  *
- * <p><b>明确不做</b>：district_adcode 跨江跨山校正——设计说明书 §6.2 原文即
- * "交由通勤矩阵校验暴露"，MVP 不采集商圈字段（§2.2）。</p>
+ * <p><b>可行性</b>：n ≥ k 时模型恒有可行解（单点日直径平凡满足 + 孤点豁免），
+ * 远郊孤点为合法解，不做罚函数软例外；n &lt; k、锚组数 &gt; k 或约束组合下无解时抛
+ * 300002（设计说明书 §7.3"不可行尽早拒绝"）。</p>
  *
- * <p>纯本地算法：零外部 API、零数据库依赖；距离矩阵 O(n²) 预计算（n≤40）。</p>
+ * <p><b>不做</b>：district_adcode 跨江跨山校正——由通勤禁配回切环承担（编排层 3.6）；
+ * 簇→天排序按簇质心邻近关系贪心，仅降换区成本（设计说明书 §6.3"日序安排"）。</p>
  */
 @Component
 public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput> {
 
     private static final Logger log = LoggerFactory.getLogger(SpatialClusterTool.class);
+
+    /** 目标函数距离缩放：米 → 0.1m 精度整数（CP-SAT 目标仅支持整数系数） */
+    private static final long DIST_SCALE = 10L;
+
+    static {
+        // 类加载时加载原生库（ortools-java 自带各平台原生库，无需系统安装）
+        Loader.loadNativeLibraries();
+    }
 
     private final ClusterProperties properties;
 
@@ -78,20 +88,11 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         List<PoiCandidate> candidates = validate(input);
         int n = candidates.size();
         int k = input.getDays();
-        long seed = input.getSeed() != null ? input.getSeed() : properties.getSeed();
 
-        // 距离矩阵一次性预计算（n≤40，O(n²) 廉价；迭代中只查表）
+        // 距离矩阵一次性预计算（n≤40，O(n²) 廉价；直径约束与目标函数共用）
         double[][] dist = buildDistanceMatrix(candidates);
 
-        // ---------- 0.5 边缘点剥离（2026-11-20，候选中的候选） ----------
-        // K-Means 初始化会被离群点绑架（k-means++ D² 加权把质心推到远郊孤立点，
-        // 导致市中心 20+ 点挤一天）。剥离后密集区正常分簇；必去点永不剥离。
-        OutlierResult outlier = detectOutliers(candidates, dist);
-        List<PoiCandidate> excluded = outlier.excluded();
-        Map<Long, String> excludedReason = outlier.excludedReason();
-        Set<Integer> excludedIdx = outlier.excludedIdx();
-
-        // ---------- 1. 必去点近邻归并 → 锚定簇（2.5.3） ----------
+        // ---------- 1. 必去点近邻归并 → 锚组 ----------
         List<List<Integer>> anchorGroups = mergeAnchorGroups(candidates, dist);
         int g = anchorGroups.size();
         if (g > k) {
@@ -99,118 +100,17 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
                     String.format("必去景点归并后共 %d 组，超过行程天数 %d：每组各占一天，无法安排，"
                             + "请减少必去景点或增加天数", g, k));
         }
-        int anchorPointCount = anchorGroups.stream().mapToInt(List::size).sum();
-        if (n - anchorPointCount < k - g) {
-            throw new BizException(ResultCode.PLAN_INFEASIBLE.getCode(),
-                    String.format("候选共 %d 个，其中必去点 %d 个已锚定 %d 天，剩余自由点 %d 个"
-                                    + "不足填充剩余 %d 天，请补充候选或减少必去景点",
-                            n, anchorPointCount, g, n - anchorPointCount, k - g));
-        }
 
-        // assign[i]：候选 i 所属簇下标；锚定点在此钉死，后续不再变更
-        int[] assign = new int[n];
-        Arrays.fill(assign, -1);
-        for (int c = 0; c < g; c++) {
-            for (int idx : anchorGroups.get(c)) {
-                assign[idx] = c;
-            }
-        }
-        List<Integer> freePoints = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            if (assign[i] < 0 && !excludedIdx.contains(i)) {
-                freePoints.add(i);
-            }
-        }
-        // 剥离后若参与聚类的点不足 k，则全部作为一个簇返回（交由编排层用 excluded 补齐）
-        if (freePoints.size() + anchorPointCount < k) {
-            log.warn("剥离边缘点后参与聚类的点不足 {} 个（实际 {} 个），全部作为一个簇返回", k,
-                    freePoints.size() + anchorPointCount);
-            ClusterOutput degenerate = buildDegenerateOutput(candidates, anchorGroups, freePoints,
-                    excluded, excludedReason, k, seed);
-            printClusters(degenerate);
-            return degenerate;
-        }
+        // ---------- 2. 构建并求解 CP-SAT 模型 ----------
+        int[] assign = solve(candidates, dist, input.getForbiddenPairs(), anchorGroups, k);
 
-        // ---------- 2. K-Means（2.5.1/2.5.2） ----------
-        // centroids[c] = {lat, lng}；锚定簇（0..g-1）质心固定，自由簇（g..k-1）随迭代更新
-        double[][] centroids = initCentroids(candidates, anchorGroups, freePoints, k, dist, seed);
-        int iterations = kMeans(candidates, dist, centroids, assign, freePoints, g, k);
-
-        // ---------- 3. 簇平衡校正（2.5.4） ----------
-        int movedPoints = rebalance(candidates, centroids, assign, freePoints, g, k);
-        int[] sizes = clusterSizes(assign, k);
-        int maxSize = Arrays.stream(sizes).max().orElse(0);
-        int minSize = Arrays.stream(sizes).min().orElse(0);
-        boolean balanced = maxSize - minSize <= properties.getBalanceThreshold();
-
-        // ---------- 4. 簇→天排序（2.5.5） ----------
+        // ---------- 3. 簇→天排序（设计说明书 §6.3"日序安排"） ----------
+        double[][] centroids = computeCentroids(candidates, assign, k);
         int[] dayOrder = orderClusters(centroids, k);
 
-        ClusterOutput output = buildOutput(candidates, assign, centroids, dayOrder,
-                k, seed, iterations, balanced, movedPoints, g, excluded, excludedReason);
+        ClusterOutput output = buildOutput(candidates, assign, centroids, dayOrder, k, g);
         printClusters(output);
         return output;
-    }
-
-    // ---------- 0.5 边缘点剥离（候选中的候选） ----------
-
-    /**
-     * 识别并剥离边缘点（离群远点）：计算每个自由点到最近 outlierKnn 个邻居的
-     * 平均距离，取所有点该值的分位数（outlierThresholdQuantile）作为动态阈值，
-     * 同时不低于 outlierMinDistanceMeters 绝对下限；超过阈值的自由点剥离。
-     *
-     * <p><b>必去点永不剥离</b>：它是锚不是噪声——哪怕离得再远也必须给一个簇
-     * （哪怕那个簇只有它 1 个点），编排层据此单独安排或拒绝。</p>
-     */
-    private OutlierResult detectOutliers(List<PoiCandidate> candidates, double[][] dist) {
-        int n = candidates.size();
-        int knn = Math.max(1, properties.getOutlierKnn());
-        double[] knnAvg = new double[n];
-        for (int i = 0; i < n; i++) {
-            // 到最近 knn 个邻居的平均距离（排除自身 dist[i][i]=0）
-            double[] d = dist[i].clone();
-            Arrays.sort(d);
-            double sum = 0;
-            for (int j = 1; j <= knn && j < d.length; j++) {
-                sum += d[j];
-            }
-            knnAvg[i] = sum / knn;
-        }
-        double[] sorted = knnAvg.clone();
-        Arrays.sort(sorted);
-        double quantile = properties.getOutlierThresholdQuantile();
-        int qIdx = (int) Math.min(n - 1, Math.ceil(quantile * n) - 1);
-        double threshold = Math.max(sorted[qIdx], properties.getOutlierMinDistanceMeters());
-
-        List<PoiCandidate> excluded = new ArrayList<>();
-        Map<Long, String> excludedReason = new LinkedHashMap<>();
-        Set<Integer> excludedIdx = new LinkedHashSet<>();
-        for (int i = 0; i < n; i++) {
-            if (candidates.get(i).isMustVisit()) {
-                continue; // 必去点永不剥离
-            }
-            if (knnAvg[i] > threshold) {
-                excluded.add(candidates.get(i));
-                excludedIdx.add(i);
-                excludedReason.put(candidates.get(i).getId(),
-                        String.format("距最近 %d 邻居均值 %.1fkm（阈值 %.1fkm）",
-                                knn, knnAvg[i] / 1000, threshold / 1000));
-            }
-        }
-        if (!excluded.isEmpty()) {
-            log.info("边缘点剥离：{} 个候选中有 {} 个离群点被剥离（阈值={}km，分位数={}，绝对下限={}km）：{}",
-                    n, excluded.size(), String.format("%.1f", threshold / 1000),
-                    quantile, properties.getOutlierMinDistanceMeters() / 1000,
-                    excluded.stream().map(p -> p.getName() + "(" + excludedReason.get(p.getId()) + ")")
-                            .collect(Collectors.joining("、")));
-        }
-        return new OutlierResult(excluded, excludedReason, excludedIdx);
-    }
-
-    /** 边缘点剥离结果 */
-    private record OutlierResult(List<PoiCandidate> excluded,
-                                 Map<Long, String> excludedReason,
-                                 Set<Integer> excludedIdx) {
     }
 
     // ---------- 0. 参数校验 ----------
@@ -312,290 +212,208 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         parent[find(parent, a)] = find(parent, b);
     }
 
-    // ---------- 2. K-Means ----------
+    /**
+     * 孤点判定：最近邻距离 > 直径阈值的点。孤点对不受直径硬约束（允许并入最近簇），
+     * 避免远郊稀疏点强制独占一天导致孤点数 > k 时整体无解（设计定案 B）。
+     */
+    private boolean[] detectOutliers(double[][] dist, double diameter) {
+        int n = dist.length;
+        boolean[] outlier = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            double nearest = Double.MAX_VALUE;
+            for (int j = 0; j < n; j++) {
+                if (i != j && dist[i][j] < nearest) {
+                    nearest = dist[i][j];
+                }
+            }
+            outlier[i] = nearest > diameter;
+        }
+        return outlier;
+    }
+
+    // ---------- 2. CP-SAT 模型（设计说明书 §6.2） ----------
 
     /**
-     * 初始质心：锚定簇 = 锚组成员均值坐标（固定）；自由簇 = 固定种子 k-means++
-     * 在自由点中抽样（距离平方加权，几何上拉开初始质心间距，收敛更稳）。
+     * 构建并求解约束划分模型，返回 assign[i] = 候选 i 所属簇下标（0..k-1）。
+     *
+     * @param candidates     候选（去重后）
+     * @param dist           距离矩阵（米）
+     * @param forbiddenPairs 禁配表（通勤回切环注入，可为 null/空）
+     * @param anchorGroups   必去点归并组（组内强制同天、独占一天）
+     * @param k              天数
      */
-    private double[][] initCentroids(List<PoiCandidate> candidates, List<List<Integer>> anchorGroups,
-                                     List<Integer> freePoints, int k, double[][] dist, long seed) {
-        double[][] centroids = new double[k][2];
-        for (int c = 0; c < anchorGroups.size(); c++) {
-            centroids[c] = meanCoords(candidates, anchorGroups.get(c));
+    private int[] solve(List<PoiCandidate> candidates, double[][] dist,
+                        List<ForbiddenPair> forbiddenPairs,
+                        List<List<Integer>> anchorGroups, int k) {
+        int n = candidates.size();
+        // 候选 id → 下标（禁配表按 id 引用，转回下标）
+        Map<Long, Integer> idToIdx = new LinkedHashMap<>();
+        for (int i = 0; i < n; i++) {
+            idToIdx.put(candidates.get(i).getId(), i);
         }
-        int freeClusters = k - anchorGroups.size();
-        if (freeClusters == 0) {
-            return centroids;
-        }
-        Random random = new Random(seed);
-        List<Integer> chosen = new ArrayList<>();
-        for (int c = anchorGroups.size(); c < k; c++) {
-            int next;
-            if (chosen.isEmpty() && anchorGroups.isEmpty()) {
-                // 无任何锚点：第一个自由质心种子随机取一个自由点
-                next = freePoints.get(random.nextInt(freePoints.size()));
-            } else {
-                // k-means++：与已选自由质心和全部锚定质心的最近距离平方为权重——
-                // 锚定质心参与加权，避免自由簇初始质心落在锚点附近导致远簇被劈开
-                next = pickKMeansPlusPlus(candidates, freePoints, chosen, centroids,
-                        anchorGroups.size(), dist, random);
+
+        CpModel model = new CpModel();
+        IntVar[][] x = new IntVar[n][k];
+        for (int i = 0; i < n; i++) {
+            for (int d = 0; d < k; d++) {
+                x[i][d] = model.newBoolVar("x[" + i + "," + d + "]");
             }
-            chosen.add(next);
-            centroids[c] = coords(candidates.get(next));
+        }
+
+        // 约束 1：每候选恰好一天
+        for (int i = 0; i < n; i++) {
+            model.addEquality(LinearExpr.sum(x[i]), 1);
+        }
+
+        // 约束 2：每日点数硬约束 [minPoisPerDay, maxPoisPerDay]（默认 1~7）
+        int minPerDay = properties.getMinPoisPerDay();
+        int maxPerDay = properties.getMaxPoisPerDay();
+        for (int d = 0; d < k; d++) {
+            IntVar[] col = new IntVar[n];
+            for (int i = 0; i < n; i++) {
+                col[i] = x[i][d];
+            }
+            model.addLinearConstraint(LinearExpr.sum(col), minPerDay, maxPerDay);
+        }
+
+        // 约束 3：簇直径硬约束——超径点对不得同天（x[i][d]+x[j][d] ≤ 1）
+        // 孤点豁免（2026-11-21 设计定案 B）：最近邻距离 > 直径阈值的点为孤点（如远郊
+        // 稀疏点），它与其他点的"超径"不加禁配——允许并入最近簇，由目标函数就近
+        // 分配；否则每个远郊孤点都必须独占一天，孤点数 > k 时整体无解（真实 30 点
+        // 数据验证暴露）。非孤点之间仍受直径硬约束，保持市区密集区"一天一个区域"。
+        double diameter = properties.getMaxClusterDiameterMeters();
+        boolean[] outlier = detectOutliers(dist, diameter);
+        int diameterPairs = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (dist[i][j] > diameter && !outlier[i] && !outlier[j]) {
+                    for (int d = 0; d < k; d++) {
+                        model.addLessOrEqual(
+                                LinearExpr.newBuilder().add(x[i][d]).add(x[j][d]).build(), 1);
+                    }
+                    diameterPairs++;
+                }
+            }
+        }
+        int outlierCount = 0;
+        for (boolean o : outlier) {
+            if (o) outlierCount++;
+        }
+        if (outlierCount > 0) {
+            log.info("孤点豁免：{} 个最近邻 > {}km 的点不受直径约束（并入最近簇）",
+                    outlierCount, (long) (diameter / 1000));
+        }
+
+        // 约束 3b：禁配表回切（通勤矩阵/硬校验 #4 发现的"同天但通勤超时"点对）
+        int forbidden = 0;
+        if (forbiddenPairs != null) {
+            for (ForbiddenPair pair : forbiddenPairs) {
+                Integer i = idToIdx.get(pair.getFirstPoiId());
+                Integer j = idToIdx.get(pair.getSecondPoiId());
+                if (i == null || j == null) {
+                    log.warn("禁配表引用未知候选 id，跳过：({},{})", pair.getFirstPoiId(), pair.getSecondPoiId());
+                    continue;
+                }
+                for (int d = 0; d < k; d++) {
+                    model.addLessOrEqual(
+                            LinearExpr.newBuilder().add(x[i][d]).add(x[j][d]).build(), 1);
+                }
+                forbidden++;
+            }
+        }
+
+        // 约束 4：必去点锚定——归并组内成员强制同天、该组独占一天（变量固定值）
+        // 组 g 固定到簇 g（0..g-1），剩余 k-g 天供自由点。
+        int g = anchorGroups.size();
+        for (int c = 0; c < g; c++) {
+            for (int idx : anchorGroups.get(c)) {
+                model.addEquality(x[idx][c], 1);
+            }
+        }
+
+        // 目标：最小化全部簇的直径和（凝聚度）——每簇引入整数直径变量 D[d]，
+        // 线性约束 D[d] ≥ (x[i][d] + x[j][d] - 1) · dist(i,j)（当 i、j 同天时 D[d]
+        // 至少取其距离）。纯线性、无乘法变量，CP-SAT 毫秒～百毫秒级收敛；
+        // 语义即"每个区域尽量紧凑"（设计说明书 §6.2 凝聚度目标）。
+        // 距离缩放到 0.1m 整数精度（CP-SAT 整数系数）。
+        long maxScaled = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                maxScaled = Math.max(maxScaled, Math.round(dist[i][j] * DIST_SCALE));
+            }
+        }
+        IntVar[] diameterVar = new IntVar[k];
+        for (int d = 0; d < k; d++) {
+            diameterVar[d] = model.newIntVar(0, maxScaled, "diam_" + d);
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                long w = Math.round(dist[i][j] * DIST_SCALE);
+                if (w == 0) {
+                    continue;
+                }
+                for (int d = 0; d < k; d++) {
+                    // D[d] >= dist(i,j) * (x[i][d] + x[j][d] - 1)
+                    // 即 D[d] - dist*x[i][d] - dist*x[j][d] >= -dist
+                    model.addGreaterOrEqual(
+                            LinearExpr.newBuilder().addTerm(diameterVar[d], 1)
+                                    .addTerm(x[i][d], -w)
+                                    .addTerm(x[j][d], -w).build(),
+                            -w);
+                }
+            }
+        }
+        model.minimize(LinearExpr.sum(diameterVar));
+
+        // 求解：固定参数 + 单 worker，保证同输入同输出（设计说明书 §6.2 确定性）
+        CpSolver solver = new CpSolver();
+        solver.getParameters().setNumSearchWorkers(1);
+        solver.getParameters().setMaxTimeInSeconds(properties.getMaxSolveTimeSeconds());
+        CpSolverStatus status = solver.solve(model);
+
+        log.debug("CP-SAT 求解：n={} k={} 锚组={} 直径约束对={} 禁配对={} 状态={} 目标={}",
+                n, k, g, diameterPairs, forbidden, status, solver.objectiveValue());
+
+        if (status != CpSolverStatus.OPTIMAL && status != CpSolverStatus.FEASIBLE) {
+            // n ≥ k 且下界 1 时单点日恒可行；唯一可能不可行来源是直径/禁配约束
+            throw new BizException(ResultCode.PLAN_INFEASIBLE.getCode(),
+                    String.format("候选 %d 个分 %d 天无法满足空间约束（簇直径 ≤ %.0fkm）"
+                                    + "：请放宽直径阈值、减少必去锚点或调整禁配点对",
+                            n, k, diameter / 1000));
+        }
+
+        int[] assign = new int[n];
+        for (int i = 0; i < n; i++) {
+            for (int d = 0; d < k; d++) {
+                if (solver.value(x[i][d]) == 1) {
+                    assign[i] = d;
+                    break;
+                }
+            }
+        }
+        return assign;
+    }
+
+    // ---------- 3. 簇→天排序（设计说明书 §6.3"日序安排"） ----------
+
+    /** 簇质心 = 成员均值坐标 */
+    private double[][] computeCentroids(List<PoiCandidate> candidates, int[] assign, int k) {
+        double[][] centroids = new double[k][2];
+        int[] sizes = new int[k];
+        for (int i = 0; i < candidates.size(); i++) {
+            int c = assign[i];
+            centroids[c][0] += candidates.get(i).getLatitude().doubleValue();
+            centroids[c][1] += candidates.get(i).getLongitude().doubleValue();
+            sizes[c]++;
+        }
+        for (int c = 0; c < k; c++) {
+            if (sizes[c] > 0) {
+                centroids[c][0] /= sizes[c];
+                centroids[c][1] /= sizes[c];
+            }
         }
         return centroids;
     }
-
-    /**
-     * k-means++ 抽样：权重 = min(到已选自由质心距离², 到最近锚定质心距离²)；
-     * 权重和为 0（点重合）时按序取未选点兜底，保证确定性。
-     */
-    private int pickKMeansPlusPlus(List<PoiCandidate> candidates, List<Integer> freePoints,
-                                   List<Integer> chosen, double[][] centroids, int anchorCount,
-                                   double[][] dist, Random random) {
-        double total = 0;
-        double[] weights = new double[freePoints.size()];
-        for (int i = 0; i < freePoints.size(); i++) {
-            int p = freePoints.get(i);
-            double minD = Double.MAX_VALUE;
-            for (int c : chosen) {
-                minD = Math.min(minD, dist[p][c]);
-            }
-            for (int c = 0; c < anchorCount; c++) {
-                minD = Math.min(minD, pointToCentroid(candidates.get(p), centroids[c]));
-            }
-            weights[i] = minD * minD;
-            total += weights[i];
-        }
-        if (total <= 0) {
-            for (int p : freePoints) {
-                if (!chosen.contains(p)) {
-                    return p;
-                }
-            }
-            return freePoints.get(0);
-        }
-        double r = random.nextDouble() * total;
-        double acc = 0;
-        for (int i = 0; i < weights.length; i++) {
-            acc += weights[i];
-            if (r < acc) {
-                return freePoints.get(i);
-            }
-        }
-        return freePoints.get(weights.length - 1);
-    }
-
-    /**
-     * K-Means 迭代：自由点分配到最近质心（距离相等取簇下标小者）→
-     * 自由簇质心按成员均值更新 → 空簇确定性兜底；分配不再变化或达上限时收敛。
-     *
-     * @return 实际迭代轮数
-     */
-    private int kMeans(List<PoiCandidate> candidates, double[][] dist, double[][] centroids,
-                       int[] assign, List<Integer> freePoints, int anchorCount, int k) {
-        int iterations = 0;
-        for (int iter = 1; iter <= properties.getMaxIterations(); iter++) {
-            iterations = iter;
-            boolean changed = false;
-            for (int p : freePoints) {
-                int best = nearestCentroid(candidates.get(p), centroids);
-                if (assign[p] != best) {
-                    assign[p] = best;
-                    changed = true;
-                }
-            }
-            updateFreeCentroids(candidates, centroids, assign, freePoints, anchorCount, k);
-            // 空簇兜底若移动了点位，视同分配有变化，需再跑一轮分配
-            changed |= rescueEmptyClusters(candidates, centroids, assign, freePoints, anchorCount, k);
-            if (!changed) {
-                break;
-            }
-        }
-        return iterations;
-    }
-
-    /** 最近质心（锚定簇质心也参与竞争：自由点离必去点近就进锚定簇）；距离相等取簇下标小者 */
-    private int nearestCentroid(PoiCandidate point, double[][] centroids) {
-        int best = 0;
-        double bestD = Haversine.distanceMeters(
-                point.getLatitude().doubleValue(), point.getLongitude().doubleValue(),
-                centroids[0][0], centroids[0][1]);
-        for (int c = 1; c < centroids.length; c++) {
-            double d = Haversine.distanceMeters(
-                    point.getLatitude().doubleValue(), point.getLongitude().doubleValue(),
-                    centroids[c][0], centroids[c][1]);
-            if (d < bestD) {
-                bestD = d;
-                best = c;
-            }
-        }
-        return best;
-    }
-
-    /** 自由簇质心 = 成员均值坐标；锚定簇不动 */
-    private void updateFreeCentroids(List<PoiCandidate> candidates, double[][] centroids,
-                                     int[] assign, List<Integer> freePoints, int anchorCount, int k) {
-        for (int c = anchorCount; c < k; c++) {
-            List<Integer> members = membersOf(assign, c);
-            if (!members.isEmpty()) {
-                centroids[c] = meanCoords(candidates, members);
-            }
-        }
-    }
-
-    /**
-     * 空簇兜底：自由簇迭代后为空时，确定性地把"离本簇质心最远"的自由点移入
-     * （平局取输入下标小者）；被移点原簇保证仍非空（只从成员 ≥2 的簇里拿）。
-     *
-     * @return 是否有点位被移动
-     */
-    private boolean rescueEmptyClusters(List<PoiCandidate> candidates,
-                                        double[][] centroids, int[] assign,
-                                        List<Integer> freePoints, int anchorCount, int k) {
-        boolean rescued = false;
-        for (int c = anchorCount; c < k; c++) {
-            while (membersOf(assign, c).isEmpty()) {
-                int[] sizes = clusterSizes(assign, k);
-                int victim = -1;
-                double victimDist = -1;
-                for (int p : freePoints) {
-                    if (assign[p] == c || sizes[assign[p]] < 2) {
-                        continue;
-                    }
-                    double d = pointToCentroid(candidates.get(p), centroids[assign[p]]);
-                    if (d > victimDist) {
-                        victimDist = d;
-                        victim = p;
-                    }
-                }
-                if (victim < 0) {
-                    // 极端情况：所有自由点都是独占簇成员，无法再拆（前置校验已尽量拦截）
-                    throw new BizException(ResultCode.PLAN_INFEASIBLE.getCode(),
-                            "聚类出现无法填充的空簇，请补充候选景点或调整天数");
-                }
-                assign[victim] = c;
-                rescued = true;
-                log.warn("K-Means 空簇兜底：候选 {} 移入空簇 {}", candidates.get(victim).getId(), c);
-                updateFreeCentroids(candidates, centroids, assign, freePoints, anchorCount, k);
-            }
-        }
-        return rescued;
-    }
-
-    // ---------- 3. 簇平衡校正（2.5.4） ----------
-
-    /**
-     * 簇间大小差 &gt; 阈值时，大簇中离质心最远的自由点移交"小簇"；
-     * 锚定点永不移动（锚定优先于平衡）。
-     *
-     * <p><b>移交规则（真实数据验证后细化，2026-11-19）</b>：设计说明书 §6.2 原文是
-     * "移交小簇"，最初实现取全局最小簇——真实数据暴露出缺陷：最小簇可能是几十公里外
-     * 的远郊簇（如淳安），为凑平衡会把市中心点拽进远郊天（"拱墅商场 + 淳安景点同一天"），
-     * 违背"一天一个区域"。细化为：在"小簇"（大小 ≤ 最小簇 + 阈值）中选离被移点最近者，
-     * 且<b>移交距离 ≤ maxBalanceMoveMeters</b>（默认 15km，配置化）——超过即视为
-     * 非相邻区域，拒绝移交。地理纯度优先于簇大小：区域完整性由硬约束保证，簇偏小时
-     * 由上游补候选/替补解决（设计说明书 §6.4），不靠跨区硬凑。</p>
-     *
-     * <p>每轮至多移动 1 个点，移动后重算受影响的自由簇质心；轮数上限 n 保证收敛。</p>
-     *
-     * @return 实际移动的点数
-     */
-    private int rebalance(List<PoiCandidate> candidates, double[][] centroids,
-                          int[] assign, List<Integer> freePoints, int anchorCount, int k) {
-        int moved = 0;
-        // 上限 n 轮：每轮至多移动 1 个点且总点数有限，必然收敛
-        for (int round = 0; round < candidates.size(); round++) {
-            int[] sizes = clusterSizes(assign, k);
-            int minC = argMin(sizes);
-            int maxC = argMax(sizes);
-            if (sizes[maxC] - sizes[minC] <= properties.getBalanceThreshold()) {
-                break;
-            }
-            boolean movedThisRound = false;
-            // 按簇大小降序尝试大簇：找到一个"相邻区域"移交即执行；全无则终止
-            for (int donor : clustersBySizeDesc(sizes)) {
-                if (sizes[donor] - sizes[minC] <= properties.getBalanceThreshold()) {
-                    break;
-                }
-                if (!hasMovablePoint(assign, freePoints, donor)) {
-                    continue;
-                }
-                int farthest = farthestMovablePoint(candidates, centroids, assign, freePoints, donor);
-                int recipient = nearestSmallCluster(candidates.get(farthest), sizes,
-                        minC, centroids, donor, k);
-                // 移交距离超过阈值 → 非相邻区域，拒绝；尝试下一个大簇
-                if (pointToCentroid(candidates.get(farthest), centroids[recipient])
-                        > properties.getMaxBalanceMoveMeters()) {
-                    continue;
-                }
-                assign[farthest] = recipient;
-                moved++;
-                log.debug("簇平衡：候选 {} 由簇 {}（{} 点）移交簇 {}（{} 点，相距 {}m）",
-                        candidates.get(farthest).getId(), donor, sizes[donor], recipient, sizes[recipient],
-                        Math.round(pointToCentroid(candidates.get(farthest), centroids[recipient])));
-                updateFreeCentroids(candidates, centroids, assign, freePoints, anchorCount, k);
-                movedThisRound = true;
-                break;
-            }
-            if (!movedThisRound) {
-                log.warn("簇平衡校正终止：无可移交的相邻小簇，保持地理纯度（接受不平衡，balanced=false）");
-                break;
-            }
-        }
-        return moved;
-    }
-
-    private boolean hasMovablePoint(int[] assign, List<Integer> freePoints, int cluster) {
-        for (int p : freePoints) {
-            if (assign[p] == cluster) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 移交目标："小簇"（大小 ≤ 最小簇 + 阈值，接收后不破坏平衡带）中离被移点
-     * 最近的簇；距离相等取簇下标小者（确定性）。最小簇本身必在候选内，不会空集。
-     */
-    private int nearestSmallCluster(PoiCandidate point, int[] sizes, int minCluster,
-                                    double[][] centroids, int donor, int k) {
-        int recipient = minCluster;
-        double best = pointToCentroid(point, centroids[minCluster]);
-        for (int c = 0; c < k; c++) {
-            if (c == donor || sizes[c] > sizes[minCluster] + properties.getBalanceThreshold()) {
-                continue;
-            }
-            double d = pointToCentroid(point, centroids[c]);
-            if (d < best) {
-                best = d;
-                recipient = c;
-            }
-        }
-        return recipient;
-    }
-
-    /** 簇内离质心最远的自由点（平局取输入下标小者，确定性） */
-    private int farthestMovablePoint(List<PoiCandidate> candidates, double[][] centroids,
-                                     int[] assign, List<Integer> freePoints, int cluster) {
-        int farthest = -1;
-        double farthestDist = -1;
-        for (int p : freePoints) {
-            if (assign[p] != cluster) {
-                continue;
-            }
-            double d = pointToCentroid(candidates.get(p), centroids[cluster]);
-            if (d > farthestDist) {
-                farthestDist = d;
-                farthest = p;
-            }
-        }
-        return farthest;
-    }
-
-    // ---------- 4. 簇→天排序（2.5.5） ----------
 
     /**
      * 从簇 0（有必去点时即首个锚定簇）出发按质心贪心最近邻排序：
@@ -631,11 +449,7 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
     // ---------- 输出 ----------
 
     private ClusterOutput buildOutput(List<PoiCandidate> candidates, int[] assign,
-                                      double[][] centroids, int[] dayOrder,
-                                      int k, long seed, int iterations, boolean balanced,
-                                      int movedPoints, int anchorGroupCount,
-                                      List<PoiCandidate> excluded,
-                                      Map<Long, String> excludedReason) {
+                                      double[][] centroids, int[] dayOrder, int k, int anchorGroupCount) {
         List<DayCluster> clusters = new ArrayList<>(k);
         for (int seq = 0; seq < k; seq++) {
             int c = dayOrder[seq];
@@ -656,145 +470,18 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         return ClusterOutput.builder()
                 .clusters(clusters)
                 .days(k)
-                .seed(seed)
-                .iterations(iterations)
-                .balanced(balanced)
-                .movedPoints(movedPoints)
                 .anchorGroupCount(anchorGroupCount)
-                .excluded(excluded)
-                .excludedReason(excludedReason)
                 .build();
-    }
-
-    /**
-     * 退化输出：剥离边缘点后参与聚类的点不足 k 时，全部作为一个簇返回，
-     * 交由编排层用 excluded 替补池补齐（不再做数学校验）。
-     */
-    private ClusterOutput buildDegenerateOutput(List<PoiCandidate> candidates,
-                                                List<List<Integer>> anchorGroups,
-                                                List<Integer> freePoints,
-                                                List<PoiCandidate> excluded,
-                                                Map<Long, String> excludedReason,
-                                                int k, long seed) {
-        List<PoiCandidate> points = new ArrayList<>();
-        for (List<Integer> group : anchorGroups) {
-            for (int idx : group) {
-                points.add(candidates.get(idx));
-            }
-        }
-        for (int idx : freePoints) {
-            points.add(candidates.get(idx));
-        }
-        double[] centroid = points.isEmpty() ? new double[]{0, 0}
-                : meanCoords(candidates, points.stream().map(candidates::indexOf).toList());
-        DayCluster single = DayCluster.builder()
-                .daySeq(1)
-                .points(points)
-                .centroidLat(centroid[0])
-                .centroidLng(centroid[1])
-                .anchored(!anchorGroups.isEmpty())
-                .build();
-        return ClusterOutput.builder()
-                .clusters(List.of(single))
-                .days(k)
-                .seed(seed)
-                .iterations(0)
-                .balanced(false)
-                .movedPoints(0)
-                .anchorGroupCount(anchorGroups.size())
-                .excluded(excluded)
-                .excludedReason(excludedReason)
-                .build();
-    }
-
-    // ---------- 小工具 ----------
-
-    private double[] coords(PoiCandidate p) {
-        return new double[]{p.getLatitude().doubleValue(), p.getLongitude().doubleValue()};
-    }
-
-    private double[] meanCoords(List<PoiCandidate> candidates, List<Integer> memberIdx) {
-        double lat = 0;
-        double lng = 0;
-        for (int idx : memberIdx) {
-            lat += candidates.get(idx).getLatitude().doubleValue();
-            lng += candidates.get(idx).getLongitude().doubleValue();
-        }
-        return new double[]{lat / memberIdx.size(), lng / memberIdx.size()};
-    }
-
-    private double pointToCentroid(PoiCandidate p, double[] centroid) {
-        return Haversine.distanceMeters(
-                p.getLatitude().doubleValue(), p.getLongitude().doubleValue(),
-                centroid[0], centroid[1]);
-    }
-
-    private List<Integer> membersOf(int[] assign, int cluster) {
-        List<Integer> members = new ArrayList<>();
-        for (int i = 0; i < assign.length; i++) {
-            if (assign[i] == cluster) {
-                members.add(i);
-            }
-        }
-        return members;
-    }
-
-    private int[] clusterSizes(int[] assign, int k) {
-        int[] sizes = new int[k];
-        for (int a : assign) {
-            if (a >= 0) {
-                sizes[a]++;
-            }
-        }
-        return sizes;
-    }
-
-    private int argMin(int[] sizes) {
-        int best = 0;
-        for (int i = 1; i < sizes.length; i++) {
-            if (sizes[i] < sizes[best]) {
-                best = i;
-            }
-        }
-        return best;
-    }
-
-    private int argMax(int[] sizes) {
-        int best = 0;
-        for (int i = 1; i < sizes.length; i++) {
-            if (sizes[i] > sizes[best]) {
-                best = i;
-            }
-        }
-        return best;
-    }
-
-    /** 簇下标按大小降序（平局下标小者在前），冒泡即可（k≤7） */
-    private int[] clustersBySizeDesc(int[] sizes) {
-        int[] order = new int[sizes.length];
-        for (int i = 0; i < order.length; i++) {
-            order[i] = i;
-        }
-        for (int i = 0; i < order.length; i++) {
-            for (int j = i + 1; j < order.length; j++) {
-                if (sizes[order[j]] > sizes[order[i]]) {
-                    int tmp = order[i];
-                    order[i] = order[j];
-                    order[j] = tmp;
-                }
-            }
-        }
-        return order;
     }
 
     // ---------- 日志（人读表格，AGENTS.md 测试/日志定规） ----------
 
     private void printClusters(ClusterOutput output) {
         StringBuilder sb = new StringBuilder("\n---------- 空间聚类结果 k=")
-                .append(output.getDays()).append(" ----------\n");
-        sb.append(String.format("  种子=%d，迭代 %d 轮，锚组 %d 个，平衡移动 %d 点，平衡达标=%s%n",
-                output.getSeed(), output.getIterations(), output.getAnchorGroupCount(),
-                output.getMovedPoints(), output.isBalanced() ? "是" : "否"));
+                .append(output.getDays()).append("（CP-SAT 约束划分）----------\n");
+        sb.append(String.format("  锚组=%d，每日点数 [%d,%d]，簇直径 ≤ %.0fkm%n",
+                output.getAnchorGroupCount(), properties.getMinPoisPerDay(),
+                properties.getMaxPoisPerDay(), properties.getMaxClusterDiameterMeters() / 1000));
         for (DayCluster day : output.getClusters()) {
             sb.append(String.format("  第 %d 天%s 质心(%.5f, %.5f) 共 %d 点：%s%n",
                     day.getDaySeq(), day.isAnchored() ? "（锚定）" : "（自由）",
@@ -802,12 +489,6 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
                     day.getPoints().stream()
                             .map(p -> p.getName() + "(id=" + p.getId() + (p.isMustVisit() ? ",必去" : "") + ")")
                             .reduce((a, b) -> a + "、 " + b).orElse("")));
-        }
-        if (output.getExcluded() != null && !output.getExcluded().isEmpty()) {
-            sb.append(String.format("  边缘点（候选中的候选）%d 个：%s%n", output.getExcluded().size(),
-                    output.getExcluded().stream()
-                            .map(p -> p.getName() + "[" + output.getExcludedReason().get(p.getId()) + "]")
-                            .collect(Collectors.joining("、"))));
         }
         log.info(sb.toString());
     }

@@ -28,8 +28,9 @@ public class ClusterInput implements ToolInput {
     private Integer days;
 
     /**
-     * 随机种子（K-Means 初始质心抽样用，保证同输入同输出）；
-     * null 时使用配置默认值 {@code tripmap.cluster.seed}
+     * 禁配点对表（可选，任务 2.5.9 通勤时间禁配回切环）：列出的两个 POI 不得排在
+     * 同一天，由编排层（3.6）在通勤矩阵/硬校验 #4 发现"同天但通勤超时"时注入，
+     * 回灌模型重解。null/空表示无禁配。
      */
-    private Long seed;
+    private List<ForbiddenPair> forbiddenPairs;
 }

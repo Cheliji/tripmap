@@ -19,8 +19,9 @@ public class ClusterConfig {
     private static final Logger log = LoggerFactory.getLogger(ClusterConfig.class);
 
     public ClusterConfig(ClusterProperties properties) {
-        log.info("空间聚类装配：默认种子={}, 最大迭代={}, 平衡阈值={}, 锚点归并距离={}m",
-                properties.getSeed(), properties.getMaxIterations(),
-                properties.getBalanceThreshold(), properties.getAnchorMergeDistanceMeters());
+        log.info("空间聚类装配（CP-SAT 约束划分）：每日点数[{},{}], 簇直径≤{}m, 锚点归并距离={}m, 求解时限={}s",
+                properties.getMinPoisPerDay(), properties.getMaxPoisPerDay(),
+                properties.getMaxClusterDiameterMeters(), properties.getAnchorMergeDistanceMeters(),
+                properties.getMaxSolveTimeSeconds());
     }
 }
