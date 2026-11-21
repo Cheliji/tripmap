@@ -51,24 +51,19 @@ tripmap:
     city-codes:
       杭州: "0571"
 
-  # 空间聚类工具配置（任务 2.5，设计说明书 §6.2）
+  # 空间聚类工具配置（任务 2.5，设计说明书 §6.2，CP-SAT 约束划分，v1.4 重做）
   cluster:
-    # K-Means 默认随机种子（同输入同输出，可复现）
-    seed: ${CLUSTER_SEED:42}
-    # K-Means 最大迭代轮数
-    max-iterations: ${CLUSTER_MAX_ITERATIONS:100}
-    # 簇平衡阈值：簇间大小差超过此值时，大簇最远点移交小簇
-    balance-threshold: ${CLUSTER_BALANCE_THRESHOLD:2}
+    # 每日景点数硬约束下界/上界（设计说明书 v1.4 §6.2）
+    min-pois-per-day: ${CLUSTER_MIN_POIS_PER_DAY:1}
+    max-pois-per-day: ${CLUSTER_MAX_POIS_PER_DAY:7}
+    # 簇直径硬约束（米）：同一天任意两点 haversine 直线距离不得超过此值（默认 20km 覆盖杭州主城区）
+    max-cluster-diameter-meters: ${CLUSTER_MAX_CLUSTER_DIAMETER_M:20000}
     # 必去点近邻归并距离（米）：距离不超此值的必去点归为一组、安排在同一天
     anchor-merge-distance-meters: ${CLUSTER_ANCHOR_MERGE_DISTANCE_M:1500}
-    # 平衡移交最大距离（米）：超过视为非相邻区域拒绝移交，防止跨区硬凑
-    max-balance-move-meters: ${CLUSTER_MAX_BALANCE_MOVE_M:15000}
-    # 边缘点剥离（候选中的候选）：k-NN 邻居数
-    outlier-knn: ${CLUSTER_OUTLIER_KNN:2}
-    # 边缘点剥离：k-NN 距离阈值分位数
-    outlier-threshold-quantile: ${CLUSTER_OUTLIER_QUANTILE:0.90}
-    # 边缘点剥离：绝对下限（米），防止分位数阈值飘低误剥市区点
-    outlier-min-distance-meters: ${CLUSTER_OUTLIER_MIN_DIST_M:15000}
+    # CP-SAT 确定性时间上限（秒）：固定此值 + 单 worker ⇒ 同输入同输出
+    max-solve-deterministic-time: ${CLUSTER_MAX_SOLVE_DETERMINISTIC_TIME:8.0}
+    # CP-SAT wall-clock 硬上限（秒）：仅防极端数据下确定性时间对应 wall-clock 过久
+    max-solve-wall-clock-seconds: ${CLUSTER_MAX_SOLVE_WALL_CLOCK_SECONDS:30.0}
 
   # 日内路径求解工具配置（任务 2.6，设计说明书 §6.3 双开放最短路径 + 时间窗 + 午餐禁游）
   # input 显式传值时优先于本默认值（startTime / lunchStart / lunchEnd / defaultVisitMinutes）
