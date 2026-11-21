@@ -365,10 +365,13 @@ public class SpatialClusterTool implements TripTool<ClusterInput, ClusterOutput>
         }
         model.minimize(LinearExpr.sum(diameterVar));
 
-        // 求解：固定参数 + 单 worker，保证同输入同输出（设计说明书 §6.2 确定性）
+        // 求解：固定参数 + 单 worker + 固定随机种子 + 确定性时间上限，保证同输入同输出
+        // （设计说明书 §6.2 确定性；确定性时间限制与 wall-clock 无关，截断点确定）
         CpSolver solver = new CpSolver();
         solver.getParameters().setNumSearchWorkers(1);
-        solver.getParameters().setMaxTimeInSeconds(properties.getMaxSolveTimeSeconds());
+        solver.getParameters().setRandomSeed(1);
+        solver.getParameters().setMaxDeterministicTime(properties.getMaxSolveDeterministicTime());
+        solver.getParameters().setMaxTimeInSeconds(properties.getMaxSolveWallClockSeconds());
         CpSolverStatus status = solver.solve(model);
 
         log.debug("CP-SAT 求解：n={} k={} 锚组={} 直径约束对={} 禁配对={} 状态={} 目标={}",

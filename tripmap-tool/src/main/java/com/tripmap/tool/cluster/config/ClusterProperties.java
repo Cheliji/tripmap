@@ -38,7 +38,12 @@ public class ClusterProperties {
      */
     private double anchorMergeDistanceMeters = 1500.0;
 
-    /** CP-SAT 求解时限（秒）：n≤40 规模 k=5 约 3 秒到最优，k≥8 高天数 3 秒内出
-     * 高质量可行解（凝聚度目标持续改善，无需证明最优）；上限兜底防异常膨胀 */
-    private double maxSolveTimeSeconds = 3.0;
+    /** CP-SAT 确定性时间上限（秒，基于求解器内部确定性计数器，与 wall-clock 无关）：
+     * 固定此值 + 单 worker + 固定随机种子 ⇒ 同输入同输出（即使截断返回近似解也确定）。
+     * k=5 约 2.5 单位到最优，取 8 留裕量；k≥8 高天数在 8 单位内出高质量可行解 */
+    private double maxSolveDeterministicTime = 8.0;
+
+    /** CP-SAT wall-clock 硬上限（秒）：仅防极端数据（n=40 高天数）下确定性时间对应
+     * 的 wall-clock 过久；正常情况由 maxSolveDeterministicTime 先行截断 */
+    private double maxSolveWallClockSeconds = 30.0;
 }

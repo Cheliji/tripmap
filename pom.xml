@@ -37,8 +37,10 @@
         <!-- ORM：MyBatis-Plus（任务 1.2.4 定案，见《tripmap数据库设计说明书》§5），Boot 3 专用 starter -->
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <!-- 空间聚类约束求解（任务 2.5.7，设计说明书 v1.4 §6.2）：OR-Tools CP-SAT，仅聚类使用；
-             TSP 路径排序维持纯 Java 精确枚举（v1.1/v1.4 决策） -->
-        <ortools.version>9.14.6206</ortools.version>
+             TSP 路径排序维持纯 Java 精确枚举（v1.1/v1.4 决策）。
+             注：9.14 与 JDK 17.0.1（Windows）存在原生库不兼容（msvcp140.dll 访问冲突），
+             故锁定 9.11 兼容旧 JDK，不随最新版升级（2026-11-21 验证） -->
+        <ortools.version>9.11.4210</ortools.version>
     </properties>
 
     <dependencyManagement>
